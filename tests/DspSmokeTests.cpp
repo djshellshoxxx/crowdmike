@@ -25,7 +25,10 @@ void testTrimAndPolarity() {
     strip.setTrimDb(6.0206f);
     strip.setPolarityInverted(true);
     strip.process(b);
-    expect(std::abs(b.getSample(0, 20) + 0.5f) < 0.002f, "trim and polarity");
+    expect(std::abs(b.getSample(0, 255)) < 0.5f, "trim ramps toward its target");
+    fill(b, 0.25f);
+    strip.process(b);
+    expect(std::abs(b.getSample(0, 255) + 0.5f) < 0.002f, "trim and polarity after ramp");
     strip.reset();
     strip.setPolarityInverted(false);
     fill(b, 0.25f);
