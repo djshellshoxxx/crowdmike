@@ -46,8 +46,13 @@ void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
         muteGain.setTargetValue(muteTarget);
 
     buffer.applyGain(gain * polarity);
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-        muteGain.applyGain(buffer.getWritePointer(channel), buffer.getNumSamples());
+    const int samples = buffer.getNumSamples();
+    for (int sample = 0; sample < samples; ++sample)
+    {
+        const float currentMuteGain = muteGain.getNextValue();
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            buffer.getWritePointer(channel)[sample] *= currentMuteGain;
+    }
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     if (highPassEnabled) highPass.process(context);

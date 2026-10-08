@@ -77,6 +77,19 @@ void testMuteAndPeakMeter() {
     strip.process(b);
     expect(strip.getAndResetPeak() == 0.0f, "muted signal does not reach peak meter");
 }
+void testStereoMuteRampStaysSynchronized() {
+    crowdmike::InputStrip strip;
+    strip.prepare(48000.0, 256, 2);
+    strip.setMuted(true);
+    juce::AudioBuffer<float> b(2, 256);
+    fill(b, 0.8f);
+    strip.process(b);
+    bool channelsMatch = true;
+    for (int sample = 0; sample < b.getNumSamples(); ++sample)
+        channelsMatch = channelsMatch
+            && std::abs(b.getSample(0, sample) - b.getSample(1, sample)) < 0.000001f;
+    expect(channelsMatch, "stereo mute ramp uses the same gain on both channels");
+}
 void testRouting() {
     crowdmike::RoutingMatrix matrix;
     matrix.resetToIdentity(1, 2);
@@ -113,6 +126,7 @@ int main() {
     testTrimAndPolarity();
     testFilters();
     testMuteAndPeakMeter();
+    testStereoMuteRampStaysSynchronized();
     testLimiter();
     testRouting();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
