@@ -10,8 +10,12 @@ void InputStrip::prepare(double sampleRate, int maximumBlockSize, int channels)
     lowPass.prepare(spec);
     highPass.setType(juce::dsp::StateVariableTPTFilterType::highpass);
     lowPass.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    highPass.setCutoffFrequency(highPassHz);
+    lowPass.setCutoffFrequency(lowPassHz);
     muteGain.reset(sampleRate, 0.01);
     muteGain.setCurrentAndTargetValue(muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f);
+    trimGain.reset(sampleRate, 0.01);
+    trimGain.setCurrentAndTargetValue(targetGain);
     reset();
 }
 
@@ -24,19 +28,29 @@ void InputStrip::reset()
 
 void InputStrip::setTrimDb(float db) noexcept
 {
-    gain = juce::Decibels::decibelsToGain(juce::jlimit(-60.0f, 24.0f, db));
+    const float newGain = juce::Decibels::decibelsToGain(juce::jlimit(-60.0f, 24.0f, db));
+    if (newGain != targetGain) {
+        targetGain = newGain;
+        trimGain.setTargetValue(targetGain);
+    }
 }
 
 void InputStrip::setHighPassHz(float hz)
 {
-    highPass.setCutoffFrequency(juce::jlimit(20.0f, 500.0f, hz));
-    highPassEnabled = true;
+    const float boundedHz = juce::jlimit(20.0f, 500.0f, hz);
+    if (boundedHz != highPassHz) {
+        highPassHz = boundedHz;
+        highPass.setCutoffFrequency(highPassHz);
+    }
 }
 
 void InputStrip::setLowPassHz(float hz)
 {
-    lowPass.setCutoffFrequency(juce::jlimit(2000.0f, 20000.0f, hz));
-    lowPassEnabled = true;
+    const float boundedHz = juce::jlimit(2000.0f, 20000.0f, hz);
+    if (boundedHz != lowPassHz) {
+        lowPassHz = boundedHz;
+        lowPass.setCutoffFrequency(lowPassHz);
+    }
 }
 
 void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
@@ -45,13 +59,12 @@ void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
     if (muteGain.getTargetValue() != muteTarget)
         muteGain.setTargetValue(muteTarget);
 
-    buffer.applyGain(gain * polarity);
     const int samples = buffer.getNumSamples();
     for (int sample = 0; sample < samples; ++sample)
     {
-        const float currentMuteGain = muteGain.getNextValue();
+        const float currentGain = trimGain.getNextValue() * polarity * muteGain.getNextValue();
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-            buffer.getWritePointer(channel)[sample] *= currentMuteGain;
+            buffer.getWritePointer(channel)[sample] *= currentGain;
     }
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);

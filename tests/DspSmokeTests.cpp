@@ -3,6 +3,7 @@
 #include "DSP/InputStrip.h"
 #include "DSP/SafetyLimiter.h"
 #include "DSP/RoutingMatrix.h"
+#include "PluginProcessor.h"
 #include <cmath>
 #include <iostream>
 
@@ -24,7 +25,10 @@ void testTrimAndPolarity() {
     strip.setTrimDb(6.0206f);
     strip.setPolarityInverted(true);
     strip.process(b);
-    expect(std::abs(b.getSample(0, 20) + 0.5f) < 0.002f, "trim and polarity");
+    expect(std::abs(b.getSample(0, 255)) < 0.5f, "trim ramps toward its target");
+    fill(b, 0.25f);
+    strip.process(b);
+    expect(std::abs(b.getSample(0, 255) + 0.5f) < 0.002f, "trim and polarity after ramp");
     strip.reset();
     strip.setPolarityInverted(false);
     fill(b, 0.25f);
@@ -34,6 +38,8 @@ void testTrimAndPolarity() {
 void testFilters() {
     crowdmike::InputStrip strip;
     strip.prepare(48000.0, 256, 1);
+    strip.setHighPassEnabled(true);
+    strip.setLowPassEnabled(true);
     strip.setHighPassHz(200.0f);
     strip.setLowPassHz(4000.0f);
     juce::AudioBuffer<float> b(1, 256);
@@ -110,6 +116,19 @@ void testRouting() {
     matrix.process(stereo, output);
     expect(std::abs(output.getSample(0, 0) - 1.0f) < 0.0001f, "left direct");
     expect(std::abs(output.getSample(1, 0) - 0.75f) < 0.0001f, "right plus cross-feed");
+
+    matrix.resetToIdentity(4, 2);
+    juce::AudioBuffer<float> fourInputs(4, 32), stereoOutput(2, 32);
+    fill(fourInputs, 0.0f);
+    fourInputs.setSample(0, 0, 0.1f);
+    fourInputs.setSample(1, 0, 0.2f);
+    fourInputs.setSample(2, 0, 0.3f);
+    fourInputs.setSample(3, 0, 0.4f);
+    matrix.process(fourInputs, stereoOutput);
+    expect(std::abs(stereoOutput.getSample(0, 0) - 0.2f) < 0.0001f,
+           "4-in to stereo averages all left-assigned inputs");
+    expect(std::abs(stereoOutput.getSample(1, 0) - 0.3f) < 0.0001f,
+           "4-in to stereo averages all right-assigned inputs");
 }
 void testLimiter() {
     crowdmike::SafetyLimiter limiter;
@@ -121,6 +140,66 @@ void testLimiter() {
     }
     expect(b.getMagnitude(0, 256) <= 1.01f, "limiter caps sustained loud signal");
 }
+void testHostMuteParameterAffectsAudio() {
+    CrowdMikeAudioProcessor processor;
+    processor.prepareToPlay(48000.0, 256);
+    auto* mute = processor.getParameters().getParameter("input1.mute");
+    expect(mute != nullptr, "input mute parameter exists");
+    if (mute == nullptr)
+        return;
+    mute->setValueNotifyingHost(1.0f);
+
+    juce::AudioBuffer<float> audio(2, 256);
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 5; ++block) {
+        fill(audio, 0.1f);
+        processor.processBlock(audio, midi);
+    }
+    expect(audio.getMagnitude(0, 0, 256) < 0.000001f,
+           "host mute parameter silences its input");
+    expect(audio.getMagnitude(1, 0, 256) > 0.05f,
+           "host mute parameter leaves other input active");
+}
+void testHostParametersAndStateRoundTrip() {
+    CrowdMikeAudioProcessor source;
+    auto& sourceParams = source.getParameters();
+    auto* trim = sourceParams.getParameter("input1.trimDb");
+    auto* mute = sourceParams.getParameter("input1.mute");
+    auto* ceiling = sourceParams.getParameter("limiterCeilingDb");
+    expect(trim != nullptr && mute != nullptr && ceiling != nullptr,
+           "stable host parameters are registered");
+    if (trim == nullptr || mute == nullptr || ceiling == nullptr)
+        return;
+
+    trim->setValueNotifyingHost(trim->convertTo0to1(7.5f));
+    mute->setValueNotifyingHost(1.0f);
+    ceiling->setValueNotifyingHost(ceiling->convertTo0to1(-1.2f));
+
+    juce::MemoryBlock state;
+    source.getStateInformation(state);
+    const auto stateXml = juce::AudioProcessor::getXmlFromBinary(
+        state.getData(), static_cast<int>(state.getSize()));
+    expect(stateXml != nullptr && stateXml->getIntAttribute("schemaVersion", -1) == 1,
+           "state includes a schema version");
+    CrowdMikeAudioProcessor restored;
+    restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+
+    const auto* restoredTrim = restored.getParameters().getRawParameterValue("input1.trimDb");
+    const auto* restoredMute = restored.getParameters().getRawParameterValue("input1.mute");
+    const auto* restoredCeiling = restored.getParameters().getRawParameterValue("limiterCeilingDb");
+    expect(restoredTrim != nullptr && std::abs(restoredTrim->load() - 7.5f) < 0.02f,
+           "state restores input trim");
+    expect(restoredMute != nullptr && restoredMute->load() > 0.5f,
+           "state restores mute");
+    expect(restoredCeiling != nullptr && std::abs(restoredCeiling->load() + 1.2f) < 0.06f,
+           "state restores limiter ceiling");
+
+    const float beforeInvalidRestore = restoredTrim != nullptr ? restoredTrim->load() : 0.0f;
+    const char invalidState[] = "invalid";
+    restored.setStateInformation(invalidState, static_cast<int>(sizeof(invalidState)));
+    expect(restoredTrim != nullptr && std::abs(restoredTrim->load() - beforeInvalidRestore) < 0.001f,
+           "invalid state is ignored");
+}
 }
 int main() {
     testTrimAndPolarity();
@@ -129,6 +208,8 @@ int main() {
     testStereoMuteRampStaysSynchronized();
     testLimiter();
     testRouting();
+    testHostMuteParameterAffectsAudio();
+    testHostParametersAndStateRoundTrip();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
     std::cout << "CrowdMike DSP smoke tests passed\n";
     return 0;
