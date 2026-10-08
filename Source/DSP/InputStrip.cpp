@@ -17,6 +17,7 @@ void InputStrip::reset()
 {
     highPass.reset();
     lowPass.reset();
+    peakLevel.store(0.0f, std::memory_order_relaxed);
 }
 
 void InputStrip::setTrimDb(float db) noexcept
@@ -38,10 +39,26 @@ void InputStrip::setLowPassHz(float hz)
 
 void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
 {
+    if (muted.load(std::memory_order_relaxed))
+    {
+        buffer.clear();
+        peakLevel.store(0.0f, std::memory_order_relaxed);
+        return;
+    }
+
     buffer.applyGain(gain * polarity);
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     if (highPassEnabled) highPass.process(context);
     if (lowPassEnabled) lowPass.process(context);
+
+    const float blockPeak = buffer.getMagnitude(0, buffer.getNumSamples());
+    float previousPeak = peakLevel.load(std::memory_order_relaxed);
+    while (blockPeak > previousPeak
+           && !peakLevel.compare_exchange_weak(previousPeak, blockPeak,
+                                               std::memory_order_relaxed,
+                                               std::memory_order_relaxed))
+    {
+    }
 }
 }

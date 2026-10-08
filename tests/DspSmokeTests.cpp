@@ -42,6 +42,31 @@ void testFilters() {
     for (int i = 0; i < b.getNumSamples(); ++i)
         expect(std::isfinite(b.getSample(0, i)), "filter finite");
 }
+void testMuteAndPeakMeter() {
+    crowdmike::InputStrip strip;
+    strip.prepare(48000.0, 256, 1);
+    juce::AudioBuffer<float> b(1, 256);
+
+    fill(b, 0.4f);
+    strip.process(b);
+    expect(std::abs(strip.getAndResetPeak() - 0.4f) < 0.0001f,
+           "peak meter returns block peak");
+    expect(strip.getAndResetPeak() == 0.0f, "peak meter resets after read");
+
+    fill(b, 0.7f);
+    strip.process(b);
+    fill(b, 0.2f);
+    strip.process(b);
+    expect(std::abs(strip.getAndResetPeak() - 0.7f) < 0.0001f,
+           "peak meter holds maximum until read");
+
+    strip.setMuted(true);
+    fill(b, 0.8f);
+    strip.process(b);
+    expect(strip.isMuted(), "mute state is readable");
+    expect(b.getMagnitude(0, b.getNumSamples()) == 0.0f, "mute clears processed audio");
+    expect(strip.getAndResetPeak() == 0.0f, "muted signal does not reach peak meter");
+}
 void testRouting() {
     crowdmike::RoutingMatrix matrix;
     matrix.resetToIdentity(1, 2);
@@ -77,6 +102,7 @@ void testLimiter() {
 int main() {
     testTrimAndPolarity();
     testFilters();
+    testMuteAndPeakMeter();
     testLimiter();
     testRouting();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
