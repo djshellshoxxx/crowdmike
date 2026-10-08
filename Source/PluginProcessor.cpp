@@ -146,7 +146,7 @@ void CrowdMikeAudioProcessor::getStateInformation(juce::MemoryBlock& destination
     auto state = parameters.copyState();
     state.setProperty("schemaVersion", 1, nullptr);
     if (auto xml = state.createXml()) {
-        if (hasSavedRouting.load(std::memory_order_relaxed)) {
+        if (hasSavedRouting.load(std::memory_order_acquire)) {
             auto routes = std::make_unique<juce::XmlElement>("RoutingMatrix");
             for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
                 for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
@@ -222,7 +222,7 @@ bool CrowdMikeAudioProcessor::setRequestedRouteGain(int inputIndex, int outputIn
         return false;
     requestedRouteGains[static_cast<size_t>(outputIndex * crowdmike::RoutingMatrix::maxChannels + inputIndex)]
         .store(juce::jlimit(-2.0f, 2.0f, linearGain), std::memory_order_relaxed);
-    hasSavedRouting.store(true, std::memory_order_relaxed);
+    hasSavedRouting.store(true, std::memory_order_release);
     return true;
 }
 
