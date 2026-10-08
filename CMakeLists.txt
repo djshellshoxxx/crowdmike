@@ -38,7 +38,12 @@ target_sources(CrowdMike PRIVATE
 )
 
 target_include_directories(CrowdMike PRIVATE Source)
-target_compile_definitions(CrowdMike PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+# The project ships no VST2 build, so prevent JUCE from treating VST3 as a VST2 replacement.
+target_compile_definitions(CrowdMike PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+)
 target_link_libraries(CrowdMike PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
