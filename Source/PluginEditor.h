@@ -8,7 +8,7 @@ class CrowdMikeAudioProcessorEditor final : public juce::AudioProcessorEditor,
 {
 public:
     explicit CrowdMikeAudioProcessorEditor(CrowdMikeAudioProcessor&);
-    ~CrowdMikeAudioProcessorEditor() override = default;
+    ~CrowdMikeAudioProcessorEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;

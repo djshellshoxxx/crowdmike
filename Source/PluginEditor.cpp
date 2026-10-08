@@ -78,9 +78,13 @@ public:
         addAndMakeVisible(lowPassHz);
 
         mute.setButtonText("MUTE");
+        mute.setTooltip("Mute this input");
         polarity.setButtonText("POL");
+        polarity.setTooltip("Invert this input polarity");
         highPass.setButtonText("HP");
+        highPass.setTooltip("Enable high-pass filter");
         lowPass.setButtonText("LP");
+        lowPass.setTooltip("Enable low-pass filter");
         for (auto* button : { &mute, &polarity, &highPass, &lowPass })
         {
             button->setColour(juce::ToggleButton::textColourId, text);
@@ -152,6 +156,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> lowPassAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lowPassHzAttachment;
 };
+
+CrowdMikeAudioProcessorEditor::~CrowdMikeAudioProcessorEditor() = default;
 
 CrowdMikeAudioProcessorEditor::CrowdMikeAudioProcessorEditor(CrowdMikeAudioProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
