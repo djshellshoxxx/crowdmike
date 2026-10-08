@@ -9,10 +9,14 @@ CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
 
 void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    inputs.resize(static_cast<size_t>(getTotalNumInputChannels()));
+    const int ins = juce::jmax(1, getTotalNumInputChannels());
+    const int outs = juce::jmax(1, getTotalNumOutputChannels());
+    inputScratch.setSize(ins, juce::jmax(1, samplesPerBlock), false, true, false);
+    inputs.resize(static_cast<size_t>(ins));
     for (auto& input : inputs)
         input.prepare(sampleRate, samplesPerBlock, 1);
-    limiter.prepare(sampleRate, samplesPerBlock, juce::jmax(1, getTotalNumOutputChannels()));
+    routing.resetToIdentity(ins, outs);
+    limiter.prepare(sampleRate, samplesPerBlock, outs);
 }
 
 bool CrowdMikeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -27,18 +31,22 @@ bool CrowdMikeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts)
 void CrowdMikeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
-    const auto ins = getTotalNumInputChannels();
-    const auto outs = getTotalNumOutputChannels();
-
-    for (int ch = 0; ch < ins && ch < buffer.getNumChannels(); ++ch)
-    {
-        juce::AudioBuffer<float> view(buffer.getArrayOfWritePointers() + ch, 1, buffer.getNumSamples());
+    const int samples = buffer.getNumSamples();
+    const int ins = juce::jmin(getTotalNumInputChannels(), inputScratch.getNumChannels());
+    if (samples > inputScratch.getNumSamples()) {
+        // Host supplied more frames than negotiated. Fail silent, never allocate on the audio thread.
+        buffer.clear();
+        return;
+    }
+    inputScratch.clear();
+    for (int ch = 0; ch < ins && ch < buffer.getNumChannels(); ++ch) {
+        inputScratch.copyFrom(ch, 0, buffer, ch, 0, samples);
+        float* channel = inputScratch.getWritePointer(ch);
+        juce::AudioBuffer<float> view(&channel, 1, samples);
         inputs[static_cast<size_t>(ch)].process(view);
     }
-
-    for (int ch = ins; ch < outs && ch < buffer.getNumChannels(); ++ch)
-        buffer.clear(ch, 0, buffer.getNumSamples());
-
+    juce::AudioBuffer<float> inputView(inputScratch.getArrayOfWritePointers(), ins, samples);
+    routing.process(inputView, buffer);
     limiter.process(buffer);
 }
 
