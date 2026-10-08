@@ -21,6 +21,7 @@ FetchContent_MakeAvailable(clap_juce_extensions)
 
 juce_add_plugin(CrowdMike
     COMPANY_NAME "Circuit Drift Labs"
+    BUNDLE_ID "com.circuitdriftlabs.crowdmike"
     PLUGIN_MANUFACTURER_CODE CrDL
     PLUGIN_CODE CrM1
     FORMATS Standalone VST3
