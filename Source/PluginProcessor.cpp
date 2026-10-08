@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 namespace {
 constexpr auto stateType = "CrowdMikeState";
@@ -142,6 +143,18 @@ void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBy
         || xml->getIntAttribute("schemaVersion", -1) != 1)
         return;
     parameters.replaceState(juce::ValueTree::fromXml(*xml));
+}
+
+float CrowdMikeAudioProcessor::getAndResetInputPeak(int inputIndex) noexcept
+{
+    if (inputIndex < 0 || inputIndex >= crowdmike::RoutingMatrix::maxChannels)
+        return 0.0f;
+    return inputs[static_cast<size_t>(inputIndex)].getAndResetPeak();
+}
+
+juce::AudioProcessorEditor* CrowdMikeAudioProcessor::createEditor()
+{
+    return new CrowdMikeAudioProcessorEditor(*this);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

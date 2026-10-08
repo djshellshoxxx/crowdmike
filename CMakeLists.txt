@@ -31,6 +31,8 @@ juce_add_plugin(CrowdMike
 target_sources(CrowdMike PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginProcessor.h
+    Source/PluginEditor.cpp
+    Source/PluginEditor.h
     Source/DSP/InputStrip.cpp
     Source/DSP/InputStrip.h
     Source/DSP/SafetyLimiter.cpp
@@ -63,6 +65,7 @@ enable_testing()
 add_executable(crowdmike_tests
     tests/DspSmokeTests.cpp
     Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
     Source/DSP/InputStrip.cpp
     Source/DSP/SafetyLimiter.cpp
 )

@@ -23,10 +23,11 @@ public:
 
 private:
     juce::dsp::StateVariableTPTFilter<float> highPass, lowPass;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> muteGain, trimGain;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> muteGain, trimGain, highPassCutoff, lowPassCutoff;
     std::atomic<float> peakLevel { 0.0f };
     std::atomic<bool> muted { false };
     float targetGain = 1.0f, polarity = 1.0f;
+    float appliedHighPassHz = 80.0f, appliedLowPassHz = 18000.0f;
     float highPassHz = 80.0f, lowPassHz = 18000.0f;
     bool highPassEnabled = false, lowPassEnabled = false;
 };
