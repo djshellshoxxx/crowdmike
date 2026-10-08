@@ -6,14 +6,24 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(FetchContent)
-FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git GIT_TAG 9.0.3)
+FetchContent_Declare(JUCE
+    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG 9.0.3
+)
 FetchContent_MakeAvailable(JUCE)
+
+FetchContent_Declare(clap_juce_extensions
+    GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+    GIT_TAG 7adee3a1bd4684d4caa5601100e364abccff4b4d
+    GIT_SUBMODULES_RECURSE TRUE
+)
+FetchContent_MakeAvailable(clap_juce_extensions)
 
 juce_add_plugin(CrowdMike
     COMPANY_NAME "Circuit Drift Labs"
     PLUGIN_MANUFACTURER_CODE CrDL
     PLUGIN_CODE CrM1
-    FORMATS Standalone VST3 CLAP
+    FORMATS Standalone VST3
     PRODUCT_NAME "CrowdMike"
 )
 
@@ -36,6 +46,12 @@ target_link_libraries(CrowdMike PRIVATE
     juce::juce_recommended_warning_flags
 )
 juce_generate_juce_header(CrowdMike)
+
+clap_juce_extensions_plugin(
+    TARGET CrowdMike
+    CLAP_ID "com.circuitdriftlabs.crowdmike"
+    CLAP_FEATURES audio-effect
+)
 
 enable_testing()
 add_executable(crowdmike_tests

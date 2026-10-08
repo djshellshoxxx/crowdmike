@@ -17,5 +17,5 @@ jobs:
         run: cmake --build build --target crowdmike_tests -j2
       - name: Test
         run: ctest --test-dir build --output-on-failure
-      - name: Build plugin
-        run: cmake --build build --target CrowdMike_All -j2
+      - name: Build plugins
+        run: cmake --build build --target CrowdMike_All CrowdMike_CLAP -j2
