@@ -124,6 +124,24 @@ void testLimiter() {
     }
     expect(b.getMagnitude(0, 256) <= 1.01f, "limiter caps sustained loud signal");
 }
+void testHostMuteParameterAffectsAudio() {
+    CrowdMikeAudioProcessor processor;
+    processor.prepareToPlay(48000.0, 256);
+    auto* mute = processor.getParameters().getParameter("input1.mute");
+    expect(mute != nullptr, "input mute parameter exists");
+    if (mute == nullptr)
+        return;
+    mute->setValueNotifyingHost(1.0f);
+
+    juce::AudioBuffer<float> audio(2, 256);
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 5; ++block) {
+        fill(audio, 0.1f);
+        processor.processBlock(audio, midi);
+    }
+    expect(audio.getMagnitude(0, 256) == 0.0f, "host mute parameter silences its input");
+    expect(audio.getMagnitude(1, 256) > 0.05f, "host mute parameter leaves other input active");
+}
 void testHostParametersAndStateRoundTrip() {
     CrowdMikeAudioProcessor source;
     auto& sourceParams = source.getParameters();
@@ -168,6 +186,7 @@ int main() {
     testStereoMuteRampStaysSynchronized();
     testLimiter();
     testRouting();
+    testHostMuteParameterAffectsAudio();
     testHostParametersAndStateRoundTrip();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
     std::cout << "CrowdMike DSP smoke tests passed\n";
