@@ -155,8 +155,10 @@ void testHostMuteParameterAffectsAudio() {
         fill(audio, 0.1f);
         processor.processBlock(audio, midi);
     }
-    expect(audio.getMagnitude(0, 256) == 0.0f, "host mute parameter silences its input");
-    expect(audio.getMagnitude(1, 256) > 0.05f, "host mute parameter leaves other input active");
+    expect(audio.getMagnitude(0, 0, 256) < 0.000001f,
+           "host mute parameter silences its input");
+    expect(audio.getMagnitude(1, 0, 256) > 0.05f,
+           "host mute parameter leaves other input active");
 }
 void testHostParametersAndStateRoundTrip() {
     CrowdMikeAudioProcessor source;
