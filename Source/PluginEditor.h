@@ -15,12 +15,17 @@ public:
 
 private:
     class InputControls;
+    class RoutingPanel;
+    void showRoutingPage(bool);
     void timerCallback() override;
 
     CrowdMikeAudioProcessor& processor;
     juce::Label title;
     juce::Label limiterLabel;
     juce::Slider limiterSlider;
+    juce::TextButton liveButton { "LIVE" }, routingButton { "MATRIX" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> limiterAttachment;
     juce::OwnedArray<InputControls> inputControls;
+    std::unique_ptr<RoutingPanel> routingPanel;
+    bool routingPageVisible = false;
 };

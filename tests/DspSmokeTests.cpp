@@ -144,6 +144,20 @@ void testRouting() {
     expect(std::abs(output.getSample(0, 0) - 1.0f) < 0.0001f, "left direct");
     expect(std::abs(output.getSample(1, 0) - 0.75f) < 0.0001f, "right plus cross-feed");
 
+    matrix.resetToIdentity(1, 1);
+    matrix.prepare(48000.0);
+    juce::AudioBuffer<float> rampInput(1, 128), rampOutput(1, 128);
+    fill(rampInput, 1.0f);
+    expect(matrix.setTargetRouteGain(0, 0, 0.0f), "accept smoothed route update");
+    matrix.process(rampInput, rampOutput);
+    expect(rampOutput.getSample(0, 0) > rampOutput.getSample(0, 127)
+               && rampOutput.getSample(0, 127) > 0.0f,
+           "route gain ramps across the block");
+    for (int block = 0; block < 4; ++block)
+        matrix.process(rampInput, rampOutput);
+    expect(rampOutput.getMagnitude(0, rampOutput.getNumSamples()) == 0.0f,
+           "route ramp reaches silence");
+
     matrix.resetToIdentity(4, 2);
     juce::AudioBuffer<float> fourInputs(4, 32), stereoOutput(2, 32);
     fill(fourInputs, 0.0f);
@@ -157,6 +171,37 @@ void testRouting() {
     expect(std::abs(stereoOutput.getSample(1, 0) - 0.3f) < 0.0001f,
            "4-in to stereo averages all right-assigned inputs");
 }
+void testProcessorRouteUpdatesUseSmoothedMatrix() {
+    CrowdMikeAudioProcessor processor;
+    processor.prepareToPlay(48000.0, 128);
+    expect(processor.setRequestedRouteGain(0, 1, 0.75f),
+           "processor accepts an atomic route request");
+
+    juce::AudioBuffer<float> block(2, 128);
+    juce::MidiBuffer midi;
+    for (int sample = 0; sample < block.getNumSamples(); ++sample) {
+        block.setSample(0, sample, 0.25f);
+        block.setSample(1, sample, 0.0f);
+    }
+    processor.processBlock(block, midi);
+    expect(block.getSample(1, 0) < block.getSample(1, 127)
+               && block.getSample(1, 127) > 0.0f,
+           "processor applies route updates with a block-safe ramp");
+
+    for (int update = 0; update < 4; ++update) {
+        for (int sample = 0; sample < block.getNumSamples(); ++sample) {
+            block.setSample(0, sample, 0.25f);
+            block.setSample(1, sample, 0.0f);
+        }
+        processor.processBlock(block, midi);
+    }
+    const float directOutput = block.getSample(0, 127);
+    const float routedOutput = block.getSample(1, 127);
+    expect(directOutput > 0.0f
+               && std::abs(routedOutput - directOutput * 0.75f) < 0.01f,
+           "processor reaches the requested route gain");
+}
+
 void testLimiter() {
     crowdmike::SafetyLimiter limiter;
     limiter.prepare(48000.0, 256, 2);
@@ -201,6 +246,7 @@ void testHostParametersAndStateRoundTrip() {
     trim->setValueNotifyingHost(trim->convertTo0to1(7.5f));
     mute->setValueNotifyingHost(1.0f);
     ceiling->setValueNotifyingHost(ceiling->convertTo0to1(-1.2f));
+    expect(source.setRequestedRouteGain(0, 1, 0.35f), "accept persisted route gain");
 
     juce::MemoryBlock state;
     source.getStateInformation(state);
@@ -220,6 +266,8 @@ void testHostParametersAndStateRoundTrip() {
            "state restores mute");
     expect(restoredCeiling != nullptr && std::abs(restoredCeiling->load() + 1.2f) < 0.06f,
            "state restores limiter ceiling");
+    expect(std::abs(restored.getRequestedRouteGain(0, 1) - 0.35f) < 0.0001f,
+           "state restores routing matrix gains");
 
     const float beforeInvalidRestore = restoredTrim != nullptr ? restoredTrim->load() : 0.0f;
     const char invalidState[] = "invalid";
@@ -236,6 +284,7 @@ int main() {
     testStereoMuteRampStaysSynchronized();
     testLimiter();
     testRouting();
+    testProcessorRouteUpdatesUseSmoothedMatrix();
     testHostMuteParameterAffectsAudio();
     testHostParametersAndStateRoundTrip();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
