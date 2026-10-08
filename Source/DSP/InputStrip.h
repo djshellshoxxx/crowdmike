@@ -21,6 +21,7 @@ public:
 
 private:
     juce::dsp::StateVariableTPTFilter<float> highPass, lowPass;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> muteGain;
     std::atomic<float> peakLevel { 0.0f };
     std::atomic<bool> muted { false };
     float gain = 1.0f, polarity = 1.0f;

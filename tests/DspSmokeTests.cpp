@@ -60,11 +60,20 @@ void testMuteAndPeakMeter() {
     expect(std::abs(strip.getAndResetPeak() - 0.7f) < 0.0001f,
            "peak meter holds maximum until read");
 
+    strip.getAndResetPeak();
     strip.setMuted(true);
+    expect(strip.isMuted(), "mute state is readable");
     fill(b, 0.8f);
     strip.process(b);
-    expect(strip.isMuted(), "mute state is readable");
-    expect(b.getMagnitude(0, b.getNumSamples()) == 0.0f, "mute clears processed audio");
+    expect(b.getMagnitude(0, b.getNumSamples()) > 0.0f, "mute ramps instead of cutting abruptly");
+    for (int i = 0; i < 4; ++i) {
+        fill(b, 0.8f);
+        strip.process(b);
+    }
+    expect(b.getMagnitude(0, b.getNumSamples()) == 0.0f, "mute reaches silence after ramp");
+    strip.getAndResetPeak();
+    fill(b, 0.8f);
+    strip.process(b);
     expect(strip.getAndResetPeak() == 0.0f, "muted signal does not reach peak meter");
 }
 void testRouting() {

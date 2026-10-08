@@ -10,6 +10,8 @@ void InputStrip::prepare(double sampleRate, int maximumBlockSize, int channels)
     lowPass.prepare(spec);
     highPass.setType(juce::dsp::StateVariableTPTFilterType::highpass);
     lowPass.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    muteGain.reset(sampleRate, 0.01);
+    muteGain.setCurrentAndTargetValue(muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f);
     reset();
 }
 
@@ -39,14 +41,13 @@ void InputStrip::setLowPassHz(float hz)
 
 void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
 {
-    if (muted.load(std::memory_order_relaxed))
-    {
-        buffer.clear();
-        peakLevel.store(0.0f, std::memory_order_relaxed);
-        return;
-    }
+    const float muteTarget = muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f;
+    if (muteGain.getTargetValue() != muteTarget)
+        muteGain.setTargetValue(muteTarget);
 
     buffer.applyGain(gain * polarity);
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        muteGain.applyGain(buffer.getWritePointer(channel), buffer.getNumSamples());
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     if (highPassEnabled) highPass.process(context);
