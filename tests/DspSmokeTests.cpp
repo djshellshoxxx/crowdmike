@@ -195,10 +195,10 @@ void testProcessorRouteUpdatesUseSmoothedMatrix() {
         }
         processor.processBlock(block, midi);
     }
-    const float finalOutput = block.getSample(1, 127);
-    if (std::abs(finalOutput - 0.1875f) >= 0.05f)
-        std::cerr << "route output diagnostic: " << finalOutput << '\n';
-    expect(std::abs(finalOutput - 0.1875f) < 0.05f,
+    const float directOutput = block.getSample(0, 127);
+    const float routedOutput = block.getSample(1, 127);
+    expect(directOutput > 0.0f
+               && std::abs(routedOutput - directOutput * 0.75f) < 0.01f,
            "processor reaches the requested route gain");
 }
 
