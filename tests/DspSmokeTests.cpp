@@ -159,6 +159,10 @@ void testHostParametersAndStateRoundTrip() {
 
     juce::MemoryBlock state;
     source.getStateInformation(state);
+    const auto stateXml = juce::AudioProcessor::getXmlFromBinary(
+        state.getData(), static_cast<int>(state.getSize()));
+    expect(stateXml != nullptr && stateXml->getIntAttribute("schemaVersion", -1) == 1,
+           "state includes a schema version");
     CrowdMikeAudioProcessor restored;
     restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
 

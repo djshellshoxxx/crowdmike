@@ -127,7 +127,8 @@ void CrowdMikeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
 void CrowdMikeAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
-    const auto state = parameters.copyState();
+    auto state = parameters.copyState();
+    state.setProperty("schemaVersion", 1, nullptr);
     if (const auto xml = state.createXml())
         copyXmlToBinary(*xml, destination);
 }
@@ -137,7 +138,8 @@ void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBy
     if (data == nullptr || sizeInBytes <= 0)
         return;
     const auto xml = getXmlFromBinary(data, sizeInBytes);
-    if (xml == nullptr || !xml->hasTagName(stateType))
+    if (xml == nullptr || !xml->hasTagName(stateType)
+        || xml->getIntAttribute("schemaVersion", -1) != 1)
         return;
     parameters.replaceState(juce::ValueTree::fromXml(*xml));
 }
