@@ -35,6 +35,8 @@ void testTrimAndPolarity() {
 void testFilters() {
     crowdmike::InputStrip strip;
     strip.prepare(48000.0, 256, 1);
+    strip.setHighPassEnabled(true);
+    strip.setLowPassEnabled(true);
     strip.setHighPassHz(200.0f);
     strip.setLowPassHz(4000.0f);
     juce::AudioBuffer<float> b(1, 256);
