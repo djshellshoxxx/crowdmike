@@ -1,6 +1,7 @@
 #include <JuceHeader.h>
 #include "DSP/InputStrip.h"
 #include "DSP/SafetyLimiter.h"
+#include "DSP/RoutingMatrix.h"
 #include <cmath>
 #include <iostream>
 
@@ -41,6 +42,27 @@ void testFilters() {
     for (int i = 0; i < b.getNumSamples(); ++i)
         expect(std::isfinite(b.getSample(0, i)), "filter finite");
 }
+void testRouting() {
+    crowdmike::RoutingMatrix matrix;
+    matrix.resetToIdentity(1, 2);
+    juce::AudioBuffer<float> input(1, 32), output(2, 32);
+    fill(input, 0.25f);
+    fill(output, 8.0f);
+    matrix.process(input, output);
+    expect(std::abs(output.getSample(0, 0) - 0.25f) < 0.0001f, "mono to left");
+    expect(std::abs(output.getSample(1, 0) - 0.25f) < 0.0001f, "mono to right");
+    expect(!matrix.setRouteGain(8, 0, 1.0f), "reject invalid input route");
+    expect(!matrix.setRouteGain(0, 8, 1.0f), "reject invalid output route");
+    matrix.resetToIdentity(2, 2);
+    juce::AudioBuffer<float> stereo(2, 32);
+    fill(stereo, 0.0f);
+    stereo.setSample(0, 0, 1.0f);
+    stereo.setSample(1, 0, 0.5f);
+    expect(matrix.setRouteGain(0, 1, 0.25f), "accept cross-route");
+    matrix.process(stereo, output);
+    expect(std::abs(output.getSample(0, 0) - 1.0f) < 0.0001f, "left direct");
+    expect(std::abs(output.getSample(1, 0) - 0.75f) < 0.0001f, "right plus cross-feed");
+}
 void testLimiter() {
     crowdmike::SafetyLimiter limiter;
     limiter.prepare(48000.0, 256, 2);
@@ -56,6 +78,7 @@ int main() {
     testTrimAndPolarity();
     testFilters();
     testLimiter();
+    testRouting();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
     std::cout << "CrowdMike DSP smoke tests passed\n";
     return 0;
