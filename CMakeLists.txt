@@ -64,5 +64,4 @@ target_link_libraries(crowdmike_tests PRIVATE
     juce::juce_audio_basics
     juce::juce_dsp
 )
-juce_generate_juce_header(crowdmike_tests)
 add_test(NAME crowdmike_tests COMMAND crowdmike_tests)

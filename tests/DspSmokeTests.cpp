@@ -1,4 +1,5 @@
-#include <JuceHeader.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_dsp/juce_dsp.h>
 #include "DSP/InputStrip.h"
 #include "DSP/SafetyLimiter.h"
 #include "DSP/RoutingMatrix.h"
