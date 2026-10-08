@@ -61,6 +61,7 @@ add_executable(crowdmike_tests
     Source/DSP/SafetyLimiter.cpp
 )
 target_include_directories(crowdmike_tests PRIVATE Source)
+target_compile_definitions(crowdmike_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(crowdmike_tests PRIVATE
     juce::juce_audio_basics
     juce::juce_dsp
