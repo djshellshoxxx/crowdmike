@@ -49,6 +49,33 @@ void testFilters() {
     for (int i = 0; i < b.getNumSamples(); ++i)
         expect(std::isfinite(b.getSample(0, i)), "filter finite");
 }
+void testFilterCutoffChangesAreSmoothed() {
+    crowdmike::InputStrip strip;
+    strip.prepare(48000.0, 256, 1);
+    strip.setHighPassEnabled(true);
+    strip.setHighPassHz(20.0f);
+    juce::AudioBuffer<float> block(1, 256);
+    int samplePosition = 0;
+    auto fillTone = [&] {
+        for (int i = 0; i < block.getNumSamples(); ++i) {
+            const float phase = 2.0f * juce::MathConstants<float>::pi * 100.0f
+                              * static_cast<float>(samplePosition++) / 48000.0f;
+            block.setSample(0, i, 0.2f * std::sin(phase));
+        }
+    };
+    for (int i = 0; i < 40; ++i) {
+        fillTone();
+        strip.process(block);
+    }
+    const float previous = block.getSample(0, block.getNumSamples() - 1);
+    strip.setHighPassHz(500.0f);
+    fillTone();
+    strip.process(block);
+    expect(std::abs(block.getSample(0, 0) - previous) < 0.02f,
+           "filter cutoff automation ramps instead of stepping at the block edge");
+    for (int i = 0; i < block.getNumSamples(); ++i)
+        expect(std::isfinite(block.getSample(0, i)), "smoothed filter cutoff remains finite");
+}
 void testMuteAndPeakMeter() {
     crowdmike::InputStrip strip;
     strip.prepare(48000.0, 256, 1);
@@ -204,6 +231,7 @@ void testHostParametersAndStateRoundTrip() {
 int main() {
     testTrimAndPolarity();
     testFilters();
+    testFilterCutoffChangesAreSmoothed();
     testMuteAndPeakMeter();
     testStereoMuteRampStaysSynchronized();
     testLimiter();

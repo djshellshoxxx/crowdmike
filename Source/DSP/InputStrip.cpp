@@ -12,6 +12,10 @@ void InputStrip::prepare(double sampleRate, int maximumBlockSize, int channels)
     lowPass.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
     highPass.setCutoffFrequency(highPassHz);
     lowPass.setCutoffFrequency(lowPassHz);
+    highPassCutoff.reset(sampleRate, 0.02);
+    lowPassCutoff.reset(sampleRate, 0.02);
+    highPassCutoff.setCurrentAndTargetValue(highPassHz);
+    lowPassCutoff.setCurrentAndTargetValue(lowPassHz);
     muteGain.reset(sampleRate, 0.01);
     muteGain.setCurrentAndTargetValue(muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f);
     trimGain.reset(sampleRate, 0.01);
@@ -40,7 +44,7 @@ void InputStrip::setHighPassHz(float hz)
     const float boundedHz = juce::jlimit(20.0f, 500.0f, hz);
     if (boundedHz != highPassHz) {
         highPassHz = boundedHz;
-        highPass.setCutoffFrequency(highPassHz);
+        highPassCutoff.setTargetValue(highPassHz);
     }
 }
 
@@ -49,7 +53,7 @@ void InputStrip::setLowPassHz(float hz)
     const float boundedHz = juce::jlimit(2000.0f, 20000.0f, hz);
     if (boundedHz != lowPassHz) {
         lowPassHz = boundedHz;
-        lowPass.setCutoffFrequency(lowPassHz);
+        lowPassCutoff.setTargetValue(lowPassHz);
     }
 }
 
@@ -67,9 +71,25 @@ void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
             buffer.getWritePointer(channel)[sample] *= currentGain;
     }
     juce::dsp::AudioBlock<float> block(buffer);
-    juce::dsp::ProcessContextReplacing<float> context(block);
-    if (highPassEnabled) highPass.process(context);
-    if (lowPassEnabled) lowPass.process(context);
+    constexpr int cutoffUpdateInterval = 16;
+    for (int start = 0; start < samples; start += cutoffUpdateInterval)
+    {
+        const int count = juce::jmin(cutoffUpdateInterval, samples - start);
+        const float hp = highPassCutoff.skip(count);
+        const float lp = lowPassCutoff.skip(count);
+        auto segment = block.getSubBlock(static_cast<size_t>(start), static_cast<size_t>(count));
+        juce::dsp::ProcessContextReplacing<float> context(segment);
+        if (highPassEnabled)
+        {
+            highPass.setCutoffFrequency(hp);
+            highPass.process(context);
+        }
+        if (lowPassEnabled)
+        {
+            lowPass.setCutoffFrequency(lp);
+            lowPass.process(context);
+        }
+    }
 
     const float blockPeak = buffer.getMagnitude(0, buffer.getNumSamples());
     float previousPeak = peakLevel.load(std::memory_order_relaxed);
