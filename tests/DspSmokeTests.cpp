@@ -116,6 +116,19 @@ void testRouting() {
     matrix.process(stereo, output);
     expect(std::abs(output.getSample(0, 0) - 1.0f) < 0.0001f, "left direct");
     expect(std::abs(output.getSample(1, 0) - 0.75f) < 0.0001f, "right plus cross-feed");
+
+    matrix.resetToIdentity(4, 2);
+    juce::AudioBuffer<float> fourInputs(4, 32), stereoOutput(2, 32);
+    fill(fourInputs, 0.0f);
+    fourInputs.setSample(0, 0, 0.1f);
+    fourInputs.setSample(1, 0, 0.2f);
+    fourInputs.setSample(2, 0, 0.3f);
+    fourInputs.setSample(3, 0, 0.4f);
+    matrix.process(fourInputs, stereoOutput);
+    expect(std::abs(stereoOutput.getSample(0, 0) - 0.2f) < 0.0001f,
+           "4-in to stereo averages all left-assigned inputs");
+    expect(std::abs(stereoOutput.getSample(1, 0) - 0.3f) < 0.0001f,
+           "4-in to stereo averages all right-assigned inputs");
 }
 void testLimiter() {
     crowdmike::SafetyLimiter limiter;

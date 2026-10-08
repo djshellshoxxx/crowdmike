@@ -12,9 +12,20 @@ public:
         inputCount = juce::jlimit(0, maxChannels, inputChannels);
         outputCount = juce::jlimit(0, maxChannels, outputChannels);
         gains.fill(0.0f);
-        for (int out = 0; out < outputCount; ++out) {
-            const int in = inputCount == 1 ? 0 : out;
-            if (in < inputCount) gains[static_cast<size_t>(out * maxChannels + in)] = 1.0f;
+        if (inputCount == 1) {
+            for (int out = 0; out < outputCount; ++out)
+                gains[static_cast<size_t>(out * maxChannels)] = 1.0f;
+        } else if (inputCount <= outputCount) {
+            for (int channel = 0; channel < inputCount; ++channel)
+                gains[static_cast<size_t>(channel * maxChannels + channel)] = 1.0f;
+        } else {
+            // Fold extra inputs into the available outputs with per-output averaging.
+            for (int out = 0; out < outputCount; ++out) {
+                const int sourceCount = (inputCount - 1 - out) / outputCount + 1;
+                const float gain = 1.0f / static_cast<float>(sourceCount);
+                for (int in = out; in < inputCount; in += outputCount)
+                    gains[static_cast<size_t>(out * maxChannels + in)] = gain;
+            }
         }
     }
     bool setRouteGain(int input, int output, float linearGain) noexcept {
