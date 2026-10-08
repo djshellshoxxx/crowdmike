@@ -156,7 +156,7 @@ private:
 CrowdMikeAudioProcessorEditor::CrowdMikeAudioProcessorEditor(CrowdMikeAudioProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
-    title.setText("CROWDMike  /  LIVE INPUTS", juce::dontSendNotification);
+    title.setText("CROWDMIKE  /  LIVE INPUTS", juce::dontSendNotification);
     title.setColour(juce::Label::textColourId, text);
     title.setFont(juce::FontOptions(20.0f, juce::Font::bold));
     addAndMakeVisible(title);
@@ -172,9 +172,11 @@ CrowdMikeAudioProcessorEditor::CrowdMikeAudioProcessorEditor(CrowdMikeAudioProce
         processor.getParameters(), "limiterCeilingDb", limiterSlider);
 
     for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input)
+    {
         auto* controls = new InputControls(processor.getParameters(), input);
-    inputControls.add(controls);
-    addAndMakeVisible(controls);
+        inputControls.add(controls);
+        addAndMakeVisible(controls);
+    }
 
     setResizable(true, true);
     setResizeLimits(960, 640, 2400, 1600);
