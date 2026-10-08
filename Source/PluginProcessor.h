@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include "DSP/InputStrip.h"
 #include "DSP/RoutingMatrix.h"
 #include "DSP/SafetyLimiter.h"
@@ -26,7 +27,8 @@ public:
     void getStateInformation(juce::MemoryBlock&) override {}
     void setStateInformation(const void*, int) override {}
 private:
-    std::vector<crowdmike::InputStrip> inputs;
+    std::array<crowdmike::InputStrip, crowdmike::RoutingMatrix::maxChannels> inputs;
+    int preparedInputCount = 0;
     juce::AudioBuffer<float> inputScratch;
     crowdmike::RoutingMatrix routing;
     crowdmike::SafetyLimiter limiter;
