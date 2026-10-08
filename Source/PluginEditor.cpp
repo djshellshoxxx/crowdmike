@@ -196,9 +196,23 @@ public:
                 cell->onClick = [this, cell, input, output] {
                     processor.setRequestedRouteGain(input, output,
                         cell->getToggleState() ? 1.0f : 0.0f);
+                    setSelectedRoute(input, output);
+                    refreshCell(input, output);
                 };
                 addAndMakeVisible(*cell);
             }
+        routeLabel.setColour(juce::Label::textColourId, text);
+        addAndMakeVisible(routeLabel);
+        styleSlider(routeGain, "Selected route gain", " x");
+        routeGain.setRange(-2.0, 2.0, 0.01);
+        routeGain.setNumDecimalPlacesToDisplay(2);
+        addAndMakeVisible(routeGain);
+        routeGain.onValueChange = [this] {
+            processor.setRequestedRouteGain(selectedInput, selectedOutput,
+                                            static_cast<float>(routeGain.getValue()));
+            refreshCell(selectedInput, selectedOutput);
+        };
+        setSelectedRoute(0, 0);
         refresh();
     }
 
@@ -206,19 +220,9 @@ public:
     {
         for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
             for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input)
-            {
-                const int index = output * crowdmike::RoutingMatrix::maxChannels + input;
-                auto& cell = cells[static_cast<size_t>(index)];
-                const bool active = processor.getRequestedRouteGain(input, output) > 0.0001f;
-                const bool available = input < processor.getActiveInputChannelCount()
-                                    && output < processor.getActiveOutputChannelCount();
-                cell.setEnabled(available);
-                if (cell.getToggleState() != active)
-                    cell.setToggleState(active, juce::dontSendNotification);
-                const juce::String textForCell = active ? "X" : "";
-                if (cell.getButtonText() != textForCell)
-                    cell.setButtonText(textForCell);
-            }
+                refreshCell(input, output);
+        routeGain.setValue(processor.getRequestedRouteGain(selectedInput, selectedOutput),
+                           juce::dontSendNotification);
     }
 
     void paint(juce::Graphics& g) override
@@ -229,7 +233,10 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced(8);
-        auto header = area.removeFromTop(28);
+        auto inspector = area.removeFromTop(32);
+        routeLabel.setBounds(inspector.removeFromLeft(150));
+        routeGain.setBounds(inspector.removeFromLeft(280));
+        auto header = area.removeFromTop(26);
         constexpr int labelWidth = 88;
         const int cellWidth = (area.getWidth() - labelWidth) / crowdmike::RoutingMatrix::maxChannels;
         const int rowHeight = area.getHeight() / crowdmike::RoutingMatrix::maxChannels;
@@ -252,7 +259,36 @@ public:
     }
 
 private:
+    void setSelectedRoute(int input, int output)
+    {
+        selectedInput = input;
+        selectedOutput = output;
+        routeLabel.setText("IN " + juce::String(input + 1) + " > OUT "
+                           + juce::String(output + 1), juce::dontSendNotification);
+        routeGain.setValue(processor.getRequestedRouteGain(input, output),
+                           juce::dontSendNotification);
+    }
+
+    void refreshCell(int input, int output)
+    {
+        const int index = output * crowdmike::RoutingMatrix::maxChannels + input;
+        auto& cell = cells[static_cast<size_t>(index)];
+        const float gain = processor.getRequestedRouteGain(input, output);
+        const bool active = std::abs(gain) > 0.0001f;
+        const bool available = input < processor.getActiveInputChannelCount()
+                            && output < processor.getActiveOutputChannelCount();
+        cell.setEnabled(available);
+        if (cell.getToggleState() != active)
+            cell.setToggleState(active, juce::dontSendNotification);
+        const juce::String textForCell = active ? "X" : "";
+        if (cell.getButtonText() != textForCell)
+            cell.setButtonText(textForCell);
+    }
+
     CrowdMikeAudioProcessor& processor;
+    int selectedInput = 0, selectedOutput = 0;
+    juce::Label routeLabel;
+    juce::Slider routeGain;
     std::array<juce::Label, crowdmike::RoutingMatrix::maxChannels> inputLabels, outputLabels;
     std::array<juce::TextButton, crowdmike::RoutingMatrix::routeCount> cells;
 };
