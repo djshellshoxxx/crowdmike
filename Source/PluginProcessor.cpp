@@ -77,7 +77,7 @@ void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     preparedInputCount = ins;
     activeInputChannels.store(ins, std::memory_order_relaxed);
     activeOutputChannels.store(outs, std::memory_order_relaxed);
-    if (!hasSavedRouting.load(std::memory_order_relaxed))
+    if (!hasSavedRouting.load(std::memory_order_acquire))
         resetRequestedRouting(ins, outs);
     inputScratch.setSize(ins, juce::jmax(1, samplesPerBlock), false, true, false);
     for (int inputIndex = 0; inputIndex < preparedInputCount; ++inputIndex)
@@ -178,9 +178,9 @@ void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBy
                 const auto index = static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input);
                 requestedRouteGains[index].store(gain, std::memory_order_relaxed);
             }
-        hasSavedRouting.store(true, std::memory_order_relaxed);
+        hasSavedRouting.store(true, std::memory_order_release);
     } else {
-        hasSavedRouting.store(false, std::memory_order_relaxed);
+        hasSavedRouting.store(false, std::memory_order_release);
         resetRequestedRouting(activeInputChannels.load(std::memory_order_relaxed),
                               activeOutputChannels.load(std::memory_order_relaxed));
     }

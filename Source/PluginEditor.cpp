@@ -186,6 +186,7 @@ public:
                 const int index = output * crowdmike::RoutingMatrix::maxChannels + input;
                 auto* cell = &cells[static_cast<size_t>(index)];
                 cell->setClickingTogglesState(true);
+                cell->setName("Input " + juce::String(input + 1) + " to Output " + juce::String(output + 1));
                 cell->setTooltip("Toggle route from input " + juce::String(input + 1)
                                  + " to output " + juce::String(output + 1));
                 cell->setColour(juce::TextButton::buttonColourId, panel);
