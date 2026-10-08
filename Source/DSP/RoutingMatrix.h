@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <array>
+#include <cmath>
 
 namespace crowdmike {
 // Fixed-capacity, allocation-free channel matrix. Configure off the audio thread.
