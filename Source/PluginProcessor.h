@@ -13,8 +13,8 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override { return true; }
     const juce::String getName() const override { return "CrowdMike"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
@@ -29,6 +29,7 @@ public:
     void setStateInformation(const void*, int) override;
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
+    float getAndResetInputPeak(int inputIndex) noexcept;
 
 private:
     struct InputParameterPointers {
