@@ -12,6 +12,8 @@ void InputStrip::prepare(double sampleRate, int maximumBlockSize, int channels)
     lowPass.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
     highPass.setCutoffFrequency(highPassHz);
     lowPass.setCutoffFrequency(lowPassHz);
+    appliedHighPassHz = highPassHz;
+    appliedLowPassHz = lowPassHz;
     highPassCutoff.reset(sampleRate, 0.02);
     lowPassCutoff.reset(sampleRate, 0.02);
     highPassCutoff.setCurrentAndTargetValue(highPassHz);
@@ -81,12 +83,20 @@ void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
         juce::dsp::ProcessContextReplacing<float> context(segment);
         if (highPassEnabled)
         {
-            highPass.setCutoffFrequency(hp);
+            if (hp != appliedHighPassHz)
+            {
+                highPass.setCutoffFrequency(hp);
+                appliedHighPassHz = hp;
+            }
             highPass.process(context);
         }
         if (lowPassEnabled)
         {
-            lowPass.setCutoffFrequency(lp);
+            if (lp != appliedLowPassHz)
+            {
+                lowPass.setCutoffFrequency(lp);
+                appliedLowPassHz = lp;
+            }
             lowPass.process(context);
         }
     }
