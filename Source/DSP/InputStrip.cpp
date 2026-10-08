@@ -10,6 +10,8 @@ void InputStrip::prepare(double sampleRate, int maximumBlockSize, int channels)
     lowPass.prepare(spec);
     highPass.setType(juce::dsp::StateVariableTPTFilterType::highpass);
     lowPass.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    highPass.setCutoffFrequency(highPassHz);
+    lowPass.setCutoffFrequency(lowPassHz);
     muteGain.reset(sampleRate, 0.01);
     muteGain.setCurrentAndTargetValue(muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f);
     reset();
@@ -29,14 +31,20 @@ void InputStrip::setTrimDb(float db) noexcept
 
 void InputStrip::setHighPassHz(float hz)
 {
-    highPass.setCutoffFrequency(juce::jlimit(20.0f, 500.0f, hz));
-    highPassEnabled = true;
+    const float boundedHz = juce::jlimit(20.0f, 500.0f, hz);
+    if (boundedHz != highPassHz) {
+        highPassHz = boundedHz;
+        highPass.setCutoffFrequency(highPassHz);
+    }
 }
 
 void InputStrip::setLowPassHz(float hz)
 {
-    lowPass.setCutoffFrequency(juce::jlimit(2000.0f, 20000.0f, hz));
-    lowPassEnabled = true;
+    const float boundedHz = juce::jlimit(2000.0f, 20000.0f, hz);
+    if (boundedHz != lowPassHz) {
+        lowPassHz = boundedHz;
+        lowPass.setCutoffFrequency(lowPassHz);
+    }
 }
 
 void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept

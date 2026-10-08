@@ -3,6 +3,7 @@
 #include "DSP/InputStrip.h"
 #include "DSP/SafetyLimiter.h"
 #include "DSP/RoutingMatrix.h"
+#include "PluginProcessor.h"
 #include <cmath>
 #include <iostream>
 
@@ -121,6 +122,42 @@ void testLimiter() {
     }
     expect(b.getMagnitude(0, 256) <= 1.01f, "limiter caps sustained loud signal");
 }
+void testHostParametersAndStateRoundTrip() {
+    CrowdMikeAudioProcessor source;
+    auto& sourceParams = source.getParameters();
+    auto* trim = sourceParams.getParameter("input1.trimDb");
+    auto* mute = sourceParams.getParameter("input1.mute");
+    auto* ceiling = sourceParams.getParameter("limiterCeilingDb");
+    expect(trim != nullptr && mute != nullptr && ceiling != nullptr,
+           "stable host parameters are registered");
+    if (trim == nullptr || mute == nullptr || ceiling == nullptr)
+        return;
+
+    trim->setValueNotifyingHost(trim->convertTo0to1(7.5f));
+    mute->setValueNotifyingHost(1.0f);
+    ceiling->setValueNotifyingHost(ceiling->convertTo0to1(-1.2f));
+
+    juce::MemoryBlock state;
+    source.getStateInformation(state);
+    CrowdMikeAudioProcessor restored;
+    restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+
+    const auto* restoredTrim = restored.getParameters().getRawParameterValue("input1.trimDb");
+    const auto* restoredMute = restored.getParameters().getRawParameterValue("input1.mute");
+    const auto* restoredCeiling = restored.getParameters().getRawParameterValue("limiterCeilingDb");
+    expect(restoredTrim != nullptr && std::abs(restoredTrim->load() - 7.5f) < 0.02f,
+           "state restores input trim");
+    expect(restoredMute != nullptr && restoredMute->load() > 0.5f,
+           "state restores mute");
+    expect(restoredCeiling != nullptr && std::abs(restoredCeiling->load() + 1.2f) < 0.06f,
+           "state restores limiter ceiling");
+
+    const float beforeInvalidRestore = restoredTrim != nullptr ? restoredTrim->load() : 0.0f;
+    const char invalidState[] = "invalid";
+    restored.setStateInformation(invalidState, static_cast<int>(sizeof(invalidState)));
+    expect(restoredTrim != nullptr && std::abs(restoredTrim->load() - beforeInvalidRestore) < 0.001f,
+           "invalid state is ignored");
+}
 }
 int main() {
     testTrimAndPolarity();
@@ -129,6 +166,7 @@ int main() {
     testStereoMuteRampStaysSynchronized();
     testLimiter();
     testRouting();
+    testHostParametersAndStateRoundTrip();
     if (failures) { std::cerr << failures << " failures\n"; return 1; }
     std::cout << "CrowdMike DSP smoke tests passed\n";
     return 0;
