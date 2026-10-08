@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cmath>
 
 namespace {
 constexpr auto stateType = "CrowdMikeState";
@@ -24,6 +25,7 @@ CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
         pointers.lowPassHz = parameters.getRawParameterValue(inputParameterId(inputIndex, "lowPassHz"));
     }
     limiterCeilingDb = parameters.getRawParameterValue("limiterCeilingDb");
+    resetRequestedRouting(2, 2);
 }
 
 juce::String CrowdMikeAudioProcessor::inputParameterId(int inputIndex, const juce::String& suffix)
@@ -73,10 +75,15 @@ void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     const int outs = juce::jlimit(1, crowdmike::RoutingMatrix::maxChannels,
                                   getTotalNumOutputChannels());
     preparedInputCount = ins;
+    activeInputChannels.store(ins, std::memory_order_relaxed);
+    activeOutputChannels.store(outs, std::memory_order_relaxed);
+    if (!hasSavedRouting.load(std::memory_order_relaxed))
+        resetRequestedRouting(ins, outs);
     inputScratch.setSize(ins, juce::jmax(1, samplesPerBlock), false, true, false);
     for (int inputIndex = 0; inputIndex < preparedInputCount; ++inputIndex)
         inputs[static_cast<size_t>(inputIndex)].prepare(sampleRate, samplesPerBlock, 1);
     routing.resetToIdentity(ins, outs);
+    routing.prepare(sampleRate);
     limiter.prepare(sampleRate, samplesPerBlock, outs);
 }
 
@@ -113,6 +120,14 @@ void CrowdMikeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         strip.setLowPassHz(controls.lowPassHz->load(std::memory_order_relaxed));
     }
     limiter.setCeilingDb(limiterCeilingDb->load(std::memory_order_relaxed));
+    const int outs = juce::jmin(getTotalNumOutputChannels(), crowdmike::RoutingMatrix::maxChannels);
+    for (int output = 0; output < outs; ++output)
+        for (int input = 0; input < ins; ++input) {
+            const float target = requestedRouteGains[static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input)]
+                                     .load(std::memory_order_relaxed);
+            if (target != routing.getRouteGain(input, output))
+                routing.setTargetRouteGain(input, output, target);
+        }
 
     inputScratch.clear();
     for (int ch = 0; ch < ins && ch < buffer.getNumChannels(); ++ch) {
@@ -130,8 +145,17 @@ void CrowdMikeAudioProcessor::getStateInformation(juce::MemoryBlock& destination
 {
     auto state = parameters.copyState();
     state.setProperty("schemaVersion", 1, nullptr);
-    if (const auto xml = state.createXml())
+    if (auto xml = state.createXml()) {
+        auto routes = std::make_unique<juce::XmlElement>("RoutingMatrix");
+        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+            for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
+                const auto key = "r" + juce::String(input + 1) + "_" + juce::String(output + 1);
+                const auto index = static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input);
+                routes->setAttribute(key, requestedRouteGains[index].load(std::memory_order_relaxed));
+            }
+        xml->addChildElement(routes.release());
         copyXmlToBinary(*xml, destination);
+    }
 }
 
 void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
@@ -142,7 +166,62 @@ void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBy
     if (xml == nullptr || !xml->hasTagName(stateType)
         || xml->getIntAttribute("schemaVersion", -1) != 1)
         return;
-    parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    if (auto* routes = xml->getChildByName("RoutingMatrix")) {
+        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+            for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
+                const auto key = "r" + juce::String(input + 1) + "_" + juce::String(output + 1);
+                const double rawGain = routes->getDoubleAttribute(key, 0.0);
+                const float gain = std::isfinite(rawGain)
+                    ? juce::jlimit(-2.0f, 2.0f, static_cast<float>(rawGain)) : 0.0f;
+                const auto index = static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input);
+                requestedRouteGains[index].store(gain, std::memory_order_relaxed);
+            }
+        hasSavedRouting.store(true, std::memory_order_relaxed);
+    } else {
+        hasSavedRouting.store(false, std::memory_order_relaxed);
+        resetRequestedRouting(activeInputChannels.load(std::memory_order_relaxed),
+                              activeOutputChannels.load(std::memory_order_relaxed));
+    }
+
+    auto parameterState = juce::ValueTree::fromXml(*xml);
+    for (int childIndex = parameterState.getNumChildren() - 1; childIndex >= 0; --childIndex)
+        if (parameterState.getChild(childIndex).getType().toString() == "RoutingMatrix")
+            parameterState.removeChild(childIndex, nullptr);
+    parameters.replaceState(parameterState);
+}
+
+void CrowdMikeAudioProcessor::resetRequestedRouting(int inputChannels, int outputChannels) noexcept
+{
+    crowdmike::RoutingMatrix defaults;
+    defaults.resetToIdentity(inputChannels, outputChannels);
+    for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+        for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
+            const float gain = (input < inputChannels && output < outputChannels)
+                ? defaults.getRouteGain(input, output) : 0.0f;
+            requestedRouteGains[static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input)]
+                .store(gain, std::memory_order_relaxed);
+        }
+}
+
+float CrowdMikeAudioProcessor::getRequestedRouteGain(int inputIndex, int outputIndex) const noexcept
+{
+    if (inputIndex < 0 || inputIndex >= crowdmike::RoutingMatrix::maxChannels
+        || outputIndex < 0 || outputIndex >= crowdmike::RoutingMatrix::maxChannels)
+        return 0.0f;
+    return requestedRouteGains[static_cast<size_t>(outputIndex * crowdmike::RoutingMatrix::maxChannels + inputIndex)]
+        .load(std::memory_order_relaxed);
+}
+
+bool CrowdMikeAudioProcessor::setRequestedRouteGain(int inputIndex, int outputIndex, float linearGain) noexcept
+{
+    if (inputIndex < 0 || inputIndex >= crowdmike::RoutingMatrix::maxChannels
+        || outputIndex < 0 || outputIndex >= crowdmike::RoutingMatrix::maxChannels
+        || !std::isfinite(linearGain))
+        return false;
+    requestedRouteGains[static_cast<size_t>(outputIndex * crowdmike::RoutingMatrix::maxChannels + inputIndex)]
+        .store(juce::jlimit(-2.0f, 2.0f, linearGain), std::memory_order_relaxed);
+    hasSavedRouting.store(true, std::memory_order_relaxed);
+    return true;
 }
 
 float CrowdMikeAudioProcessor::getAndResetInputPeak(int inputIndex) noexcept
