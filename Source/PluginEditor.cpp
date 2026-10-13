@@ -157,6 +157,142 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lowPassHzAttachment;
 };
 
+class CrowdMikeAudioProcessorEditor::RoutingPanel final : public juce::Component
+{
+public:
+    explicit RoutingPanel(CrowdMikeAudioProcessor& p) : processor(p)
+    {
+        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+        {
+            auto& label = outputLabels[static_cast<size_t>(output)];
+            label.setText("OUT " + juce::String(output + 1), juce::dontSendNotification);
+            label.setColour(juce::Label::textColourId, mutedText);
+            label.setJustificationType(juce::Justification::centred);
+            addAndMakeVisible(label);
+        }
+
+        for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input)
+        {
+            auto& label = inputLabels[static_cast<size_t>(input)];
+            label.setText("INPUT " + juce::String(input + 1), juce::dontSendNotification);
+            label.setColour(juce::Label::textColourId, text);
+            label.setJustificationType(juce::Justification::centredLeft);
+            addAndMakeVisible(label);
+        }
+
+        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+            for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input)
+            {
+                const int index = output * crowdmike::RoutingMatrix::maxChannels + input;
+                auto* cell = &cells[static_cast<size_t>(index)];
+                cell->setClickingTogglesState(true);
+                cell->setName("Input " + juce::String(input + 1) + " to Output " + juce::String(output + 1));
+                cell->setTooltip("Toggle route from input " + juce::String(input + 1)
+                                 + " to output " + juce::String(output + 1));
+                cell->setColour(juce::TextButton::buttonColourId, panel);
+                cell->setColour(juce::TextButton::buttonOnColourId, accent.withAlpha(0.65f));
+                cell->setColour(juce::TextButton::textColourOffId, mutedText);
+                cell->setColour(juce::TextButton::textColourOnId, text);
+                cell->onClick = [this, cell, input, output] {
+                    processor.setRequestedRouteGain(input, output,
+                        cell->getToggleState() ? 1.0f : 0.0f);
+                    setSelectedRoute(input, output);
+                    refreshCell(input, output);
+                };
+                addAndMakeVisible(*cell);
+            }
+        routeLabel.setColour(juce::Label::textColourId, text);
+        addAndMakeVisible(routeLabel);
+        styleSlider(routeGain, "Selected route gain", " x");
+        routeGain.setRange(-2.0, 2.0, 0.01);
+        routeGain.setNumDecimalPlacesToDisplay(2);
+        addAndMakeVisible(routeGain);
+        routeGain.onValueChange = [this] {
+            processor.setRequestedRouteGain(selectedInput, selectedOutput,
+                                            static_cast<float>(routeGain.getValue()));
+            refreshCell(selectedInput, selectedOutput);
+        };
+        setSelectedRoute(0, 0);
+        refresh();
+    }
+
+    void refresh()
+    {
+        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+            for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input)
+                refreshCell(input, output);
+        routeGain.setValue(processor.getRequestedRouteGain(selectedInput, selectedOutput),
+                           juce::dontSendNotification);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(background);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8);
+        auto inspector = area.removeFromTop(32);
+        routeLabel.setBounds(inspector.removeFromLeft(150));
+        routeGain.setBounds(inspector.removeFromLeft(280));
+        auto header = area.removeFromTop(26);
+        constexpr int labelWidth = 88;
+        const int cellWidth = (area.getWidth() - labelWidth) / crowdmike::RoutingMatrix::maxChannels;
+        const int rowHeight = area.getHeight() / crowdmike::RoutingMatrix::maxChannels;
+        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+            outputLabels[static_cast<size_t>(output)].setBounds(
+                area.getX() + labelWidth + output * cellWidth, header.getY(), cellWidth, header.getHeight());
+
+        for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input)
+        {
+            const int y = area.getY() + input * rowHeight;
+            inputLabels[static_cast<size_t>(input)].setBounds(area.getX(), y, labelWidth - 4, rowHeight);
+            for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
+            {
+                const int index = output * crowdmike::RoutingMatrix::maxChannels + input;
+                cells[static_cast<size_t>(index)].setBounds(
+                    area.getX() + labelWidth + output * cellWidth + 2, y + 2,
+                    juce::jmax(1, cellWidth - 4), juce::jmax(1, rowHeight - 4));
+            }
+        }
+    }
+
+private:
+    void setSelectedRoute(int input, int output)
+    {
+        selectedInput = input;
+        selectedOutput = output;
+        routeLabel.setText("IN " + juce::String(input + 1) + " > OUT "
+                           + juce::String(output + 1), juce::dontSendNotification);
+        routeGain.setValue(processor.getRequestedRouteGain(input, output),
+                           juce::dontSendNotification);
+    }
+
+    void refreshCell(int input, int output)
+    {
+        const int index = output * crowdmike::RoutingMatrix::maxChannels + input;
+        auto& cell = cells[static_cast<size_t>(index)];
+        const float gain = processor.getRequestedRouteGain(input, output);
+        const bool active = std::abs(gain) > 0.0001f;
+        const bool available = input < processor.getActiveInputChannelCount()
+                            && output < processor.getActiveOutputChannelCount();
+        cell.setEnabled(available);
+        if (cell.getToggleState() != active)
+            cell.setToggleState(active, juce::dontSendNotification);
+        const juce::String textForCell = active ? "X" : "";
+        if (cell.getButtonText() != textForCell)
+            cell.setButtonText(textForCell);
+    }
+
+    CrowdMikeAudioProcessor& processor;
+    int selectedInput = 0, selectedOutput = 0;
+    juce::Label routeLabel;
+    juce::Slider routeGain;
+    std::array<juce::Label, crowdmike::RoutingMatrix::maxChannels> inputLabels, outputLabels;
+    std::array<juce::TextButton, crowdmike::RoutingMatrix::routeCount> cells;
+};
+
 CrowdMikeAudioProcessorEditor::~CrowdMikeAudioProcessorEditor() = default;
 
 CrowdMikeAudioProcessorEditor::CrowdMikeAudioProcessorEditor(CrowdMikeAudioProcessor& p)
@@ -184,6 +320,22 @@ CrowdMikeAudioProcessorEditor::CrowdMikeAudioProcessorEditor(CrowdMikeAudioProce
         addAndMakeVisible(controls);
     }
 
+    for (auto* button : { &liveButton, &routingButton })
+    {
+        button->setClickingTogglesState(true);
+        button->setColour(juce::TextButton::buttonColourId, panel);
+        button->setColour(juce::TextButton::buttonOnColourId, accent.withAlpha(0.65f));
+        button->setColour(juce::TextButton::textColourOffId, mutedText);
+        button->setColour(juce::TextButton::textColourOnId, text);
+        addAndMakeVisible(*button);
+    }
+    liveButton.onClick = [this] { showRoutingPage(false); };
+    routingButton.onClick = [this] { showRoutingPage(true); };
+    routingPanel = std::make_unique<RoutingPanel>(processor);
+    addAndMakeVisible(routingPanel.get());
+    routingPanel->setVisible(false);
+    showRoutingPage(false);
+
     setResizable(true, true);
     setResizeLimits(960, 640, 2400, 1600);
     setSize(1280, 800);
@@ -199,11 +351,16 @@ void CrowdMikeAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced(12);
     auto header = area.removeFromTop(34);
-    title.setBounds(header.removeFromLeft(header.getWidth() - 310));
-    limiterLabel.setBounds(header.removeFromLeft(62));
-    limiterSlider.setBounds(header);
+    title.setBounds(header.removeFromLeft(228));
+    liveButton.setBounds(header.removeFromLeft(62));
+    header.removeFromLeft(4);
+    routingButton.setBounds(header.removeFromLeft(82));
+    limiterLabel.setBounds(header.removeFromRight(62));
+    limiterSlider.setBounds(header.removeFromRight(220));
 
     area.removeFromTop(10);
+    if (routingPanel != nullptr)
+        routingPanel->setBounds(area);
     const int gap = 8;
     const int columnWidth = (area.getWidth() - gap * 3) / 4;
     const int rowHeight = (area.getHeight() - gap * 3) / 4;
@@ -217,8 +374,23 @@ void CrowdMikeAudioProcessorEditor::resized()
     }
 }
 
+void CrowdMikeAudioProcessorEditor::showRoutingPage(bool showMatrix)
+{
+    routingPageVisible = showMatrix;
+    liveButton.setToggleState(!showMatrix, juce::dontSendNotification);
+    routingButton.setToggleState(showMatrix, juce::dontSendNotification);
+    for (int i = 0; i < inputControls.size(); ++i)
+        inputControls[i]->setVisible(!showMatrix);
+    if (routingPanel != nullptr)
+        routingPanel->setVisible(showMatrix);
+    if (showMatrix && routingPanel != nullptr)
+        routingPanel->refresh();
+}
+
 void CrowdMikeAudioProcessorEditor::timerCallback()
 {
     for (int i = 0; i < inputControls.size(); ++i)
         inputControls[i]->setPeak(processor.getAndResetInputPeak(i));
+    if (routingPageVisible && routingPanel != nullptr)
+        routingPanel->refresh();
 }

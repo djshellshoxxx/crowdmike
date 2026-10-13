@@ -30,6 +30,10 @@ public:
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     float getAndResetInputPeak(int inputIndex) noexcept;
+    float getRequestedRouteGain(int inputIndex, int outputIndex) const noexcept;
+    bool setRequestedRouteGain(int inputIndex, int outputIndex, float linearGain) noexcept;
+    int getActiveInputChannelCount() const noexcept { return activeInputChannels.load(std::memory_order_relaxed); }
+    int getActiveOutputChannelCount() const noexcept { return activeOutputChannels.load(std::memory_order_relaxed); }
 
 private:
     struct InputParameterPointers {
@@ -44,6 +48,7 @@ private:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     static juce::String inputParameterId(int inputIndex, const juce::String& suffix);
+    void resetRequestedRouting(int inputChannels, int outputChannels) noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
     std::array<InputParameterPointers, crowdmike::RoutingMatrix::maxChannels> inputParameters {};
@@ -51,6 +56,9 @@ private:
     std::array<crowdmike::InputStrip, crowdmike::RoutingMatrix::maxChannels> inputs;
     int preparedInputCount = 0;
     juce::AudioBuffer<float> inputScratch;
+    std::array<std::atomic<float>, crowdmike::RoutingMatrix::routeCount> requestedRouteGains {};
+    std::atomic<bool> hasSavedRouting { false };
+    std::atomic<int> activeInputChannels { 2 }, activeOutputChannels { 2 };
     crowdmike::RoutingMatrix routing;
     crowdmike::SafetyLimiter limiter;
 };

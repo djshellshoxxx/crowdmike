@@ -1,13 +1,15 @@
 #pragma once
-#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_dsp/juce_dsp.h>
 #include <array>
 #include <cmath>
 
 namespace crowdmike {
-// Fixed-capacity, allocation-free channel matrix. Configure off the audio thread.
+// Fixed-capacity, allocation-free channel matrix. Audio-thread ownership applies to processing changes.
 class RoutingMatrix final {
 public:
     static constexpr int maxChannels = 16;
+    static constexpr int routeCount = maxChannels * maxChannels;
+
     void resetToIdentity(int inputChannels, int outputChannels) noexcept {
         inputCount = juce::jlimit(0, maxChannels, inputChannels);
         outputCount = juce::jlimit(0, maxChannels, outputChannels);
@@ -27,16 +29,43 @@ public:
                     gains[static_cast<size_t>(out * maxChannels + in)] = gain;
             }
         }
+        for (size_t route = 0; route < gains.size(); ++route)
+            smoothedGains[route].setCurrentAndTargetValue(gains[route]);
     }
+
+    void prepare(double sampleRate) noexcept {
+        for (size_t route = 0; route < gains.size(); ++route) {
+            smoothedGains[route].reset(sampleRate, 0.01);
+            smoothedGains[route].setCurrentAndTargetValue(gains[route]);
+        }
+    }
+
+    float getRouteGain(int input, int output) const noexcept {
+        if (!isValidRoute(input, output))
+            return 0.0f;
+        return gains[routeIndex(input, output)];
+    }
+
     bool setRouteGain(int input, int output, float linearGain) noexcept {
-        if (input < 0 || input >= inputCount || output < 0 || output >= outputCount
-            || !std::isfinite(linearGain)) return false;
-        gains[static_cast<size_t>(output * maxChannels + input)] =
-            juce::jlimit(-2.0f, 2.0f, linearGain);
+        if (!isValidGain(input, output, linearGain))
+            return false;
+        const auto index = routeIndex(input, output);
+        gains[index] = juce::jlimit(-2.0f, 2.0f, linearGain);
+        smoothedGains[index].setCurrentAndTargetValue(gains[index]);
         return true;
     }
+
+    bool setTargetRouteGain(int input, int output, float linearGain) noexcept {
+        if (!isValidGain(input, output, linearGain))
+            return false;
+        const auto index = routeIndex(input, output);
+        gains[index] = juce::jlimit(-2.0f, 2.0f, linearGain);
+        smoothedGains[index].setTargetValue(gains[index]);
+        return true;
+    }
+
     // Source and destination must not alias; all output channels are overwritten.
-    void process(const juce::AudioBuffer<float>& source, juce::AudioBuffer<float>& destination) const noexcept {
+    void process(const juce::AudioBuffer<float>& source, juce::AudioBuffer<float>& destination) noexcept {
         const int samples = juce::jmin(source.getNumSamples(), destination.getNumSamples());
         const int ins = juce::jmin(inputCount, source.getNumChannels());
         const int outs = juce::jmin(outputCount, destination.getNumChannels());
@@ -44,15 +73,34 @@ public:
         for (int out = 0; out < outs; ++out) {
             float* dest = destination.getWritePointer(out);
             for (int in = 0; in < ins; ++in) {
-                const float gain = gains[static_cast<size_t>(out * maxChannels + in)];
-                if (gain == 0.0f) continue;
+                const auto index = routeIndex(in, out);
+                auto& gain = smoothedGains[index];
                 const float* src = source.getReadPointer(in);
-                juce::FloatVectorOperations::addWithMultiply(dest, src, gain, samples);
+                if (gain.isSmoothing()) {
+                    for (int sample = 0; sample < samples; ++sample)
+                        dest[sample] += src[sample] * gain.getNextValue();
+                } else {
+                    const float currentGain = gain.getCurrentValue();
+                    if (currentGain != 0.0f)
+                        juce::FloatVectorOperations::addWithMultiply(dest, src, currentGain, samples);
+                }
             }
         }
     }
+
 private:
-    std::array<float, maxChannels * maxChannels> gains {};
+    static constexpr size_t routeIndex(int input, int output) noexcept {
+        return static_cast<size_t>(output * maxChannels + input);
+    }
+    bool isValidRoute(int input, int output) const noexcept {
+        return input >= 0 && input < inputCount && output >= 0 && output < outputCount;
+    }
+    bool isValidGain(int input, int output, float gain) const noexcept {
+        return isValidRoute(input, output) && std::isfinite(gain);
+    }
+
+    std::array<float, routeCount> gains {};
+    std::array<juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>, routeCount> smoothedGains {};
     int inputCount = 0;
     int outputCount = 0;
 };
