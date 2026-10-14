@@ -99,3 +99,12 @@ target_link_libraries(crowdmike_tests PRIVATE
     juce::juce_osc
 )
 add_test(NAME crowdmike_tests COMMAND crowdmike_tests)
+
+# Recording / playback tests (juce_audio_formats + threads, no GUI).
+file(GLOB_RECURSE CM_REC_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/Source/Recording/*.cpp)
+file(GLOB_RECURSE CM_REC_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/recording/*.cpp)
+add_executable(crowdmike_recording_tests tests/TestMain.cpp ${CM_REC_TEST_SOURCES} ${CM_REC_SOURCES} ${CM_DSP_SOURCES})
+target_include_directories(crowdmike_recording_tests PRIVATE Source tests)
+target_compile_definitions(crowdmike_recording_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(crowdmike_recording_tests PRIVATE juce::juce_dsp juce::juce_audio_formats juce::juce_events)
+add_test(NAME crowdmike_recording_tests COMMAND crowdmike_recording_tests)
