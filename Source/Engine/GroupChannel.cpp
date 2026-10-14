@@ -23,7 +23,7 @@ void GroupChannel::reset() {
 }
 
 void GroupChannel::process(float* left, float* right, int n, const float* p, bool mutedBySolo, float rampMs) noexcept {
-    using P = GroupP;
+    namespace P = GroupP;
     float* ch[2] = { left, right };
     hp.process(ch, 2, n, p[P::HpOn] >= 0.5f, p[P::HpHz], 0);
     lp.process(ch, 2, n, p[P::LpOn] >= 0.5f, p[P::LpHz], 0);

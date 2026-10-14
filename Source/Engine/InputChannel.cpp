@@ -22,7 +22,7 @@ void InputChannel::reset() {
 }
 
 void InputChannel::process(float* const* ch, int nch, int n, const float* p, bool mutedBySolo, float* const* preDynamics) noexcept {
-    using P = InputP;
+    namespace P = InputP;
     strip.setTrimDb(p[P::Trim]);
     strip.setMuted(p[P::Mute] >= 0.5f || mutedBySolo);
     strip.setPolarityInverted(p[P::Pol] >= 0.5f);

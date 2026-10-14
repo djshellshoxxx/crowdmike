@@ -14,7 +14,7 @@ void OutputStage::prepare(double sr, int maxBlock) {
 void OutputStage::reset() { hp.reset(); lp.reset(); delay.reset(); limiter.reset(); first = true; }
 
 void OutputStage::process(float* ch, int n, const float* p, bool limiterEnabled, float ceilingDb, float releaseMs, float rampMs) noexcept {
-    using P = OutputP;
+    namespace P = OutputP;
     float* ptr[1] = { ch };
     const float target = p[P::Mute] >= 0.5f ? 0.0f : dsp::dbToGain(p[P::Trim]) * (p[P::Pol] >= 0.5f ? -1.0f : 1.0f);
     if (first) { gain.snap(target); first = false; }

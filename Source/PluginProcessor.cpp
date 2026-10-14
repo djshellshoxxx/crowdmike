@@ -219,7 +219,7 @@ void CrowdMikeAudioProcessor::timerCallback()
         last = now;
         return risen;
     };
-    using G = params::GlobalP;
+    namespace G = params::GlobalP;
     if (edge(ParamBank::index(Mod::Global, 0, G::SceneNext), lastNextPressed)) scenes.next();
     if (edge(ParamBank::index(Mod::Global, 0, G::ScenePrev), lastPrevPressed)) scenes.previous();
     if (edge(ParamBank::index(Mod::Global, 0, G::RecordAll), lastRecordAll)) {
