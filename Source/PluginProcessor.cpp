@@ -217,6 +217,10 @@ void CrowdMikeAudioProcessor::timerCallback()
         const bool now = bank.rawAt(global) >= 0.5f;
         const bool risen = now && !last;
         last = now;
+        if (risen) {   // behave like a button: release it after acting (the host sees the edge, then the release)
+            if (auto* p = bank.parameterAt(global)) p->setValueNotifyingHost(0.0f);
+            last = false;
+        }
         return risen;
     };
     namespace G = params::GlobalP;
