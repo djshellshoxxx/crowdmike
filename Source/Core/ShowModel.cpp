@@ -138,6 +138,11 @@ juce::ValueTree ShowModel::toValueTree() const {
     u.setProperty("tooltips", ui.tooltips, nullptr);
     u.setProperty("scale", ui.scale, nullptr);
     u.setProperty("recallRampMs", ui.recallRampMs, nullptr);
+    {
+        juce::StringArray order;
+        for (int f : ui.fxOrder) order.add(juce::String(f));
+        u.setProperty("fxOrder", order.joinIntoString(","), nullptr);
+    }
     t.appendChild(u, nullptr);
 
     juce::StringArray locked;
@@ -225,6 +230,19 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         if (ui.scale <= 0.0f) ui.scale = 1.0f;
         if (u.hasProperty("recallRampMs"))
             ui.recallRampMs = juce::jlimit(10.0f, 500.0f, static_cast<float>(static_cast<double>(u["recallRampMs"])));
+        // fxOrder: accepted only when it is a permutation of 0..kNumFx-1
+        const auto tokens = juce::StringArray::fromTokens(u["fxOrder"].toString(), ",", "");
+        if (tokens.size() == kNumFx) {
+            std::array<int, kNumFx> order {};
+            std::array<bool, kNumFx> seen {};
+            bool ok = true;
+            for (int k = 0; k < kNumFx && ok; ++k) {
+                const int f = tokens[k].getIntValue();
+                ok = f >= 0 && f < kNumFx && !seen[static_cast<size_t>(f)];
+                if (ok) { seen[static_cast<size_t>(f)] = true; order[static_cast<size_t>(k)] = f; }
+            }
+            if (ok) ui.fxOrder = order;
+        }
     }
     for (const auto& id : juce::StringArray::fromTokens(t["locked"].toString(), ",", ""))
         if (const int idx = ParamBank::indexForId(id); idx >= 0) lockedParams.push_back(idx);

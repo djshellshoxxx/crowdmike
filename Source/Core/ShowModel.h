@@ -64,6 +64,8 @@ struct UiSettings {
     bool tooltips = true;
     float scale = 1.0f;
     float recallRampMs = 60.0f;
+    // FX page display order of the five send effects (a permutation of 0..kNumFx-1). Display only: DSP topology is fixed.
+    std::array<int, kNumFx> fxOrder { 0, 1, 2, 3, 4 };
 };
 
 class ShowModel {
