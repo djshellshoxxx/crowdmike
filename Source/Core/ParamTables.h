@@ -133,8 +133,7 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Fx3, F("fxSend3", "Tape Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx4, F("fxSend4", "Reverse Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx5, F("fxSend5", "Noise Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
-    X(FxPre, B("fxSendPre", "FX Sends Pre-fader")) \
-    X(RecArm, B("recArm", "Record Arm"))
+    X(FxPre, B("fxSendPre", "FX Sends Pre-fader"))
 
 // ---------------------------------------------------------------- Groups (8 instances, "group<n>.")
 #define CM_GROUP_PARAMS(X) \
@@ -159,8 +158,7 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Fx2, F("fxSend2", "Echo Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx3, F("fxSend3", "Tape Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx4, F("fxSend4", "Reverse Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
-    X(Fx5, F("fxSend5", "Noise Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
-    X(RecArm, B("recArm", "Record Arm"))
+    X(Fx5, F("fxSend5", "Noise Send", -80.f, 6.f, -80.f, "dB", 0.1f))
 
 // ---------------------------------------------------------------- Output channels (16 instances, "out<n>.")
 #define CM_OUTPUT_PARAMS(X) \
@@ -172,8 +170,7 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(HpHz, F("hpHz", "High Pass Frequency", 20.f, 500.f, 30.f, "Hz", 1.f, 100.f)) \
     X(LpOn, B("lpOn", "Low Pass")) \
     X(LpHz, F("lpHz", "Low Pass Frequency", 2000.f, 20000.f, 20000.f, "Hz", 1.f, 8000.f)) \
-    X(LimOn, B("limiterOn", "Limiter", true)) \
-    X(RecArm, B("recArm", "Record Arm"))
+    X(LimOn, B("limiterOn", "Limiter", true))
 
 // ---------------------------------------------------------------- Master crowd bus ("master.")
 #define CM_MASTER_PARAMS(X) \
@@ -195,8 +192,7 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Decorr, F("decorr", "Decorrelation", 0.f, 1.f, 0.f)) \
     X(Haas, F("haasMs", "Haas Offset", 0.f, 20.f, 0.f, "ms", 0.1f)) \
     X(MonoCompat, F("monoCompat", "Mono Compatibility", 0.f, 1.f, 0.f)) \
-    X(LfMono, F("lfMonoHz", "Low-frequency Mono Cutoff", 20.f, 500.f, 120.f, "Hz", 1.f, 150.f)) \
-    X(RecArm, B("recArm", "Record Arm"))
+    X(LfMono, F("lfMonoHz", "Low-frequency Mono Cutoff", 20.f, 500.f, 120.f, "Hz", 1.f, 150.f))
 
 // ---------------------------------------------------------------- Global ("" prefix)
 // "limiterCeilingDb" is the frozen first-release ID: the output-stage limiter ceiling.
