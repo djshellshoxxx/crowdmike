@@ -64,6 +64,7 @@ struct UiSettings {
     bool tooltips = true;
     float scale = 1.0f;
     float recallRampMs = 60.0f;
+    unsigned recallScope = 0xFFu;   // SceneScope bits used by operator recalls (GUI / keyboard)
 };
 
 class ShowModel {

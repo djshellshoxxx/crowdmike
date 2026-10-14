@@ -138,6 +138,7 @@ juce::ValueTree ShowModel::toValueTree() const {
     u.setProperty("tooltips", ui.tooltips, nullptr);
     u.setProperty("scale", ui.scale, nullptr);
     u.setProperty("recallRampMs", ui.recallRampMs, nullptr);
+    u.setProperty("recallScope", static_cast<int>(ui.recallScope), nullptr);
     t.appendChild(u, nullptr);
 
     juce::StringArray locked;
@@ -225,6 +226,8 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         if (ui.scale <= 0.0f) ui.scale = 1.0f;
         if (u.hasProperty("recallRampMs"))
             ui.recallRampMs = juce::jlimit(10.0f, 500.0f, static_cast<float>(static_cast<double>(u["recallRampMs"])));
+        if (u.hasProperty("recallScope"))
+            ui.recallScope = static_cast<unsigned>(static_cast<int>(u["recallScope"])) & 0xFFu;
     }
     for (const auto& id : juce::StringArray::fromTokens(t["locked"].toString(), ",", ""))
         if (const int idx = ParamBank::indexForId(id); idx >= 0) lockedParams.push_back(idx);

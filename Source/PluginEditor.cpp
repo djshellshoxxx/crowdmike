@@ -120,6 +120,13 @@ bool CrowdMikeAudioProcessorEditor::keyPressed(const juce::KeyPress& key, juce::
         if (code == 'M' || code == 'm') { processor.addMarker(5); context.say("Marker added"); return true; }
         if (code == 'I' || code == 'i') { inspectorVisible = !inspectorVisible; resized(); return true; }
     }
+    // Clip hotkeys (Playback page assignments, stored in ShowModel::playback); never while typing into a text field.
+    if (dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) == nullptr) {
+        if (const int slot = processor.findClipForHotkey(key.getTextDescription()); slot >= 0) {
+            processor.getPlayback().trigger(slot);
+            return true;
+        }
+    }
     return false;
 }
 
