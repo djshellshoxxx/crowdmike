@@ -3,6 +3,7 @@
 #include <functional>
 #include <vector>
 #include "PluginProcessor.h"
+#include "UI/Theme.h"
 
 namespace crowdmike::ui {
 enum class PageId { Live = 0, Inputs, Groups, Fx, Matrix, Record, Playback, Scenes, Settings, Diagnostics, Count };

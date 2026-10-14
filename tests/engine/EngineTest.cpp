@@ -89,12 +89,27 @@ CM_TEST(engine_bypass_is_latency_aligned_dry_signal) {
 CM_TEST(engine_group_chain_routes_master_to_outputs_via_template) {
     CrowdMikeAudioProcessor p;
     p.prepareToPlay(kSr, 256);
-    p.applyWiringTemplate(2);                    // two mic stereo crowd -> stereo PA
-    const auto out = run(p, 2, 256, 40, { 0.2f, 0.0f });   // only input 1 (hard left)
-    CM_EXPECT(out.getSample(0, 200) > 0.1f);
-    CM_EXPECT(std::abs(out.getSample(1, 200)) < 1e-3f);
-    const auto both = run(p, 2, 256, 40, { 0.2f, 0.2f });
-    CM_EXPECT(both.getSample(1, 200) > 0.1f);
+    p.applyWiringTemplate(2);                    // two mic stereo crowd -> stereo PA (HPF 100 Hz on, so use a tone)
+    auto tone = [&](bool in1, bool in2) {
+        juce::AudioBuffer<float> b(2, 256);
+        juce::MidiBuffer midi;
+        float peakL = 0.0f, peakR = 0.0f;
+        for (int blk = 0; blk < 60; ++blk) {
+            for (int s = 0; s < 256; ++s) {
+                const float v = 0.2f * std::sin(6.2831853f * 1000.0f * static_cast<float>(blk * 256 + s) / 48000.0f);
+                b.setSample(0, s, in1 ? v : 0.0f);
+                b.setSample(1, s, in2 ? v : 0.0f);
+            }
+            p.processBlock(b, midi);
+            if (blk > 40) { peakL = std::max(peakL, b.getMagnitude(0, 0, 256)); peakR = std::max(peakR, b.getMagnitude(1, 0, 256)); }
+        }
+        return std::make_pair(peakL, peakR);
+    };
+    auto left = tone(true, false);
+    CM_EXPECT(left.first > 0.05f);
+    CM_EXPECT(left.second < 1e-3f);
+    auto both = tone(true, true);
+    CM_EXPECT(both.second > 0.05f);
 }
 
 CM_TEST(engine_output_never_exceeds_ceiling_even_with_unity_overload) {
