@@ -4,20 +4,9 @@ namespace crowdmike
 {
 void InputStrip::prepare(double sampleRate, int maximumBlockSize, int channels)
 {
-    juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(maximumBlockSize),
-                                  static_cast<juce::uint32>(channels) };
-    highPass.prepare(spec);
-    lowPass.prepare(spec);
-    highPass.setType(juce::dsp::StateVariableTPTFilterType::highpass);
-    lowPass.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    highPass.setCutoffFrequency(highPassHz);
-    lowPass.setCutoffFrequency(lowPassHz);
-    appliedHighPassHz = highPassHz;
-    appliedLowPassHz = lowPassHz;
-    highPassCutoff.reset(sampleRate, 0.02);
-    lowPassCutoff.reset(sampleRate, 0.02);
-    highPassCutoff.setCurrentAndTargetValue(highPassHz);
-    lowPassCutoff.setCurrentAndTargetValue(lowPassHz);
+    preparedChannels = juce::jmax(1, channels);
+    highPass.prepare(sampleRate, maximumBlockSize, preparedChannels, true);
+    lowPass.prepare(sampleRate, maximumBlockSize, preparedChannels, false);
     muteGain.reset(sampleRate, 0.01);
     muteGain.setCurrentAndTargetValue(muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f);
     trimGain.reset(sampleRate, 0.01);
@@ -41,24 +30,6 @@ void InputStrip::setTrimDb(float db) noexcept
     }
 }
 
-void InputStrip::setHighPassHz(float hz)
-{
-    const float boundedHz = juce::jlimit(20.0f, 500.0f, hz);
-    if (boundedHz != highPassHz) {
-        highPassHz = boundedHz;
-        highPassCutoff.setTargetValue(highPassHz);
-    }
-}
-
-void InputStrip::setLowPassHz(float hz)
-{
-    const float boundedHz = juce::jlimit(2000.0f, 20000.0f, hz);
-    if (boundedHz != lowPassHz) {
-        lowPassHz = boundedHz;
-        lowPassCutoff.setTargetValue(lowPassHz);
-    }
-}
-
 void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
 {
     const float muteTarget = muted.load(std::memory_order_relaxed) ? 0.0f : 1.0f;
@@ -66,42 +37,26 @@ void InputStrip::process(juce::AudioBuffer<float>& buffer) noexcept
         muteGain.setTargetValue(muteTarget);
 
     const int samples = buffer.getNumSamples();
-    for (int sample = 0; sample < samples; ++sample)
-    {
-        const float currentGain = trimGain.getNextValue() * polarity * muteGain.getNextValue();
-        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-            buffer.getWritePointer(channel)[sample] *= currentGain;
-    }
-    juce::dsp::AudioBlock<float> block(buffer);
-    constexpr int cutoffUpdateInterval = 16;
-    for (int start = 0; start < samples; start += cutoffUpdateInterval)
-    {
-        const int count = juce::jmin(cutoffUpdateInterval, samples - start);
-        const float hp = highPassCutoff.skip(count);
-        const float lp = lowPassCutoff.skip(count);
-        auto segment = block.getSubBlock(static_cast<size_t>(start), static_cast<size_t>(count));
-        juce::dsp::ProcessContextReplacing<float> context(segment);
-        if (highPassEnabled)
+    const int channels = buffer.getNumChannels();
+    if (trimGain.isSmoothing() || muteGain.isSmoothing()) {
+        for (int sample = 0; sample < samples; ++sample)
         {
-            if (hp != appliedHighPassHz)
-            {
-                highPass.setCutoffFrequency(hp);
-                appliedHighPassHz = hp;
-            }
-            highPass.process(context);
+            const float currentGain = trimGain.getNextValue() * polarity * muteGain.getNextValue();
+            for (int channel = 0; channel < channels; ++channel)
+                buffer.getWritePointer(channel)[sample] *= currentGain;
         }
-        if (lowPassEnabled)
-        {
-            if (lp != appliedLowPassHz)
-            {
-                lowPass.setCutoffFrequency(lp);
-                appliedLowPassHz = lp;
-            }
-            lowPass.process(context);
-        }
+    } else {
+        const float gain = trimGain.getCurrentValue() * polarity * muteGain.getCurrentValue();
+        if (gain != 1.0f)
+            for (int channel = 0; channel < channels; ++channel)
+                juce::FloatVectorOperations::multiply(buffer.getWritePointer(channel), gain, samples);
     }
 
-    const float blockPeak = buffer.getMagnitude(0, buffer.getNumSamples());
+    float* const* ptrs = buffer.getArrayOfWritePointers();
+    highPass.process(ptrs, juce::jmin(channels, preparedChannels), samples, highPassEnabled, highPassHz, highPassSlope);
+    lowPass.process(ptrs, juce::jmin(channels, preparedChannels), samples, lowPassEnabled, lowPassHz, lowPassSlope);
+
+    const float blockPeak = buffer.getMagnitude(0, samples);
     float previousPeak = peakLevel.load(std::memory_order_relaxed);
     while (blockPeak > previousPeak
            && !peakLevel.compare_exchange_weak(previousPeak, blockPeak,
