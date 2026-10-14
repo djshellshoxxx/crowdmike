@@ -6,6 +6,7 @@
 #include "PluginProcessor.h"
 #include <cmath>
 #include <iostream>
+#include "TestHarness.h"
 
 namespace {
 int failures = 0;
@@ -276,7 +277,7 @@ void testHostParametersAndStateRoundTrip() {
            "invalid state is ignored");
 }
 }
-int main() {
+static void runSmokeTests() {
     testTrimAndPolarity();
     testFilters();
     testFilterCutoffChangesAreSmoothed();
@@ -287,7 +288,6 @@ int main() {
     testProcessorRouteUpdatesUseSmoothedMatrix();
     testHostMuteParameterAffectsAudio();
     testHostParametersAndStateRoundTrip();
-    if (failures) { std::cerr << failures << " failures\n"; return 1; }
-    std::cout << "CrowdMike DSP smoke tests passed\n";
-    return 0;
+    cmtest::failures() += failures;
 }
+CM_TEST(smoke_suite) { runSmokeTests(); }
