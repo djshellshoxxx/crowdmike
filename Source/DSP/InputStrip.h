@@ -1,6 +1,10 @@
 #pragma once
+// InputStrip: trim, polarity, mute and the HPF/LPF pair of an input channel (ENGINE_SPEC section 6).
+// The filters are Butterworth cascades (SlopeFilter) with selectable 12/24/36/48 dB/oct slopes; cutoff and enable
+// changes glide/crossfade. First-release behaviour (12 dB/oct, smoothed trim/mute, post-processing peak meter) is kept.
 #include <juce_dsp/juce_dsp.h>
 #include <atomic>
+#include "DSP/SlopeFilter.h"
 
 namespace crowdmike
 {
@@ -15,20 +19,23 @@ public:
     bool isMuted() const noexcept { return muted.load(std::memory_order_relaxed); }
     void setHighPassEnabled(bool enabled) noexcept { highPassEnabled = enabled; }
     void setLowPassEnabled(bool enabled) noexcept { lowPassEnabled = enabled; }
+    void setHighPassSlope(int slopeIndex) noexcept { highPassSlope = juce::jlimit(0, 3, slopeIndex); }
+    void setLowPassSlope(int slopeIndex) noexcept { lowPassSlope = juce::jlimit(0, 3, slopeIndex); }
     // Returns the largest post-processing sample magnitude since the previous read.
     float getAndResetPeak() noexcept { return peakLevel.exchange(0.0f, std::memory_order_relaxed); }
-    void setHighPassHz(float hz);
-    void setLowPassHz(float hz);
+    void setHighPassHz(float hz) noexcept { highPassHz = juce::jlimit(20.0f, 500.0f, hz); }
+    void setLowPassHz(float hz) noexcept { lowPassHz = juce::jlimit(2000.0f, 20000.0f, hz); }
     void process(juce::AudioBuffer<float>& buffer) noexcept;
 
 private:
-    juce::dsp::StateVariableTPTFilter<float> highPass, lowPass;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> muteGain, trimGain, highPassCutoff, lowPassCutoff;
+    dsp::SlopeFilter highPass, lowPass;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> muteGain, trimGain;
     std::atomic<float> peakLevel { 0.0f };
     std::atomic<bool> muted { false };
     float targetGain = 1.0f, polarity = 1.0f;
-    float appliedHighPassHz = 80.0f, appliedLowPassHz = 18000.0f;
     float highPassHz = 80.0f, lowPassHz = 18000.0f;
+    int highPassSlope = 0, lowPassSlope = 0;
     bool highPassEnabled = false, lowPassEnabled = false;
+    int preparedChannels = 1;
 };
 }
