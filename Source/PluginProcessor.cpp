@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "Core/PresetManager.h"
 #include "Core/StateIO.h"
+#include "Engine/InputRisk.h"
 #include "PluginEditor.h"
 #include "Routing/WiringTemplates.h"
 #include <cmath>
@@ -229,6 +230,21 @@ void CrowdMikeAudioProcessor::timerCallback()
     if (edge(ParamBank::index(Mod::Global, 0, G::RecordAll), lastRecordAll)) {
         if (isRecording()) stopRecording(); else startRecording();
     }
+    if (++riskTicks >= 4) { riskTicks = 0; updateFeedbackRisk(); }   // 20 Hz timer -> ~200 ms
+}
+
+void CrowdMikeAudioProcessor::updateFeedbackRisk()
+{
+    float severity = 0.0f;
+    if (analysis.isActive()) {   // candidates are only fresh while the analysis worker runs
+        dsp::FeedbackCandidate c[4];
+        const int n = engine.feedback().getCandidates(c, 4);
+        for (int k = 0; k < n; ++k) severity = juce::jmax(severity, c[k].severity);
+    }
+    const InputRiskContext ctx { bank, routing, show, getActiveOutputChannelCount(), engine.getFeedbackTap(), severity };
+    const int ins = getActiveInputChannelCount();
+    for (int i = 0; i < kMaxInputs; ++i)
+        engine.meters.inRisk[static_cast<size_t>(i)].store(i < ins ? evaluateInputRisk(ctx, i).result.score : 0.0f, std::memory_order_relaxed);
 }
 
 float CrowdMikeAudioProcessor::getAndResetInputPeak(int inputIndex) noexcept

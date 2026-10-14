@@ -11,6 +11,7 @@
 #include "DSP/InputStrip.h"
 #include "DSP/RoutingMatrix.h"
 #include "DSP/SafetyLimiter.h"
+#include "Engine/AnalysisThread.h"
 #include "Engine/CrowdEngine.h"
 #include "Recording/PlaybackEngine.h"
 #include "Recording/RecorderEngine.h"
@@ -84,6 +85,12 @@ public:
     void setFeedbackTap(int tap) noexcept { engine.setFeedbackTap(tap); }
     // Applies a feedback-detector suggestion as a dedicated notch on an input (operator-initiated only).
     void applyNotchSuggestion(int inputIndex, float hz, float q, float depthDb);
+    // Feedback analysis worker (FeedbackDetector::analyse every ~25 ms off the audio thread). Reference counted:
+    // views call setFeedbackAnalysisActive(true) when shown and (false) when hidden.
+    void setFeedbackAnalysisActive(bool active) { if (active) analysis.acquire(); else analysis.release(); }
+    crowdmike::AnalysisThread& getAnalysisThread() noexcept { return analysis; }
+    // Recomputes meters.inRisk[] for the active inputs (message thread; called from the timer every ~200 ms).
+    void updateFeedbackRisk();
 
     static constexpr const char* kAppVersion = "0.2.0";
 
@@ -105,6 +112,8 @@ private:
     crowdmike::rec::PlaybackEngine playback;
     crowdmike::rec::SoundcheckPlayer soundcheck;
     crowdmike::HostServices* hostServices = nullptr;
+    crowdmike::AnalysisThread analysis { [this] { engine.feedback().analyse(); } };   // after engine: stopped first
+    int riskTicks = 0;
 
     std::atomic<int> activeInputChannels { 2 }, activeOutputChannels { 2 };
     std::array<float, crowdmike::kMaxInputs> inputPeakCache {};

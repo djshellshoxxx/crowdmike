@@ -38,6 +38,7 @@ void CrowdMikeAudioProcessorEditor::applyUiSettings()
     setHighContrast(ui.highContrast);
     lookAndFeel.refreshColours();
     setScaleFactor(ui.scale > 0.0f ? ui.scale : 1.0f);
+    tooltips.setMillisecondsBeforeTipAppears(ui.tooltips ? 600 : 0x3fffffff);   // "tooltips off" = never appear
     inspectorVisible = !ui.compact;
     repaint();
 }
