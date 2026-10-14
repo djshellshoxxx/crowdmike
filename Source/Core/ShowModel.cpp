@@ -143,6 +143,7 @@ juce::ValueTree ShowModel::toValueTree() const {
         for (int f : ui.fxOrder) order.add(juce::String(f));
         u.setProperty("fxOrder", order.joinIntoString(","), nullptr);
     }
+    u.setProperty("recallScope", static_cast<int>(ui.recallScope), nullptr);
     t.appendChild(u, nullptr);
 
     juce::StringArray locked;
@@ -243,6 +244,8 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
             }
             if (ok) ui.fxOrder = order;
         }
+        if (u.hasProperty("recallScope"))
+            ui.recallScope = static_cast<unsigned>(static_cast<int>(u["recallScope"])) & 0xFFu;
     }
     for (const auto& id : juce::StringArray::fromTokens(t["locked"].toString(), ",", ""))
         if (const int idx = ParamBank::indexForId(id); idx >= 0) lockedParams.push_back(idx);

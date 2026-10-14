@@ -79,6 +79,22 @@ public:
     // Scene recall from any control source; stretches engine smoothers for the ramp.
     void recallScene(int slot);
     juce::String getCurrentSceneName() const;
+
+    // ---- clip deck / crowd bed / virtual soundcheck persistence (stored in ShowModel::playback). Message thread.
+    // Edits go to the ShowModel first and are then applied to the engines (diffed, so re-applying is cheap).
+    bool loadClipFile(int slot, const juce::File& file);         // false when the file does not exist (path kept)
+    void unloadClipFile(int slot);
+    void setClipSettings(int slot, const crowdmike::rec::PlaybackEngine::ClipSettings&);
+    juce::String getClipPath(int slot) const;
+    bool isClipMissing(int slot) const;                           // a path is stored but the file cannot be found
+    void setClipHotkey(int slot, const juce::String& keyDescription);   // juce::KeyPress text description, empty = none
+    juce::String getClipHotkey(int slot) const;
+    int findClipForHotkey(const juce::String& keyDescription) const;     // -1 when unassigned
+    void setBedSettings(const crowdmike::rec::PlaybackEngine::BedSettings&);
+    bool loadSoundcheckSession(const juce::File& sessionJson);    // false when the file does not exist (path kept)
+    juce::String getSoundcheckSessionPath() const;
+    bool isSoundcheckSessionMissing() const;
+    void setSoundcheckLoop(double startSeconds, double endSeconds, bool enabled);
     // Total latency estimate for the status bar: algorithmic + host block.
     int getEstimatedTotalLatencySamples() const noexcept;
     // Sets the active tap for the feedback detector (0 = master, 1..16 inputs, 17..24 groups).
@@ -98,6 +114,8 @@ private:
     void timerCallback() override;
     void rebuildRecorderTracks();
     void prepareRecordingForLayout(double sampleRate, int blockSize);
+    void restorePlaybackFromShow();
+    juce::ValueTree playbackChild(const juce::Identifier& type, int slot, bool create);
 
     juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState parameters;
@@ -120,5 +138,10 @@ private:
     double preparedSampleRate = 0.0;
     int preparedBlockSize = 0;
     int lastScenePulse = 0;
+    // last configuration handed to the recorder / playback / soundcheck engines (diffing, see restorePlaybackFromShow)
+    std::array<juce::String, crowdmike::kMaxRecordTracks> appliedTrackKeys;
+    int appliedPreRoll = -1;
+    std::array<juce::ValueTree, crowdmike::rec::PlaybackEngine::kMaxClips> appliedClips;
+    juce::ValueTree appliedBed, appliedSoundcheck;
     bool lastNextPressed = false, lastPrevPressed = false, lastRecordAll = false;
 };
