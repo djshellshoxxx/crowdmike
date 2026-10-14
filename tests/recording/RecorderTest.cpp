@@ -403,7 +403,12 @@ CM_TEST(Recorder_StartFailsCleanly) {
     CM_EXPECT(o.folder.getNumberOfChildFiles(juce::File::findFiles) == 0);
 }
 
+// Windows refuses to delete a directory that contains open files, so "destination removed while recording" cannot
+// happen there (the removal itself fails); the scenario is exercised on POSIX platforms.
 CM_TEST(Recorder_DestinationRemovedDuringRecording) {
+#if JUCE_WINDOWS
+    return;
+#endif
     rectest::TempDir tmp;
     RecorderEngine rec;
     rec.prepare(48000.0, 128, RecorderEngine::kDefaultFifoFrames, false);
