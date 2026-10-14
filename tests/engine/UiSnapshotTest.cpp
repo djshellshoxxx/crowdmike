@@ -11,7 +11,7 @@ using namespace crowdmike::ui;
 namespace {
 juce::File snapshotDir() {
     if (const char* d = std::getenv("CM_SNAPSHOT_DIR")) { juce::File f(d); f.createDirectory(); return f; }
-    return juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("cm_snapshots");
+    { auto d = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("cm_snapshots"); d.createDirectory(); return d; }
 }
 bool savePng(const juce::Image& image, const juce::File& file) {
     file.getParentDirectory().createDirectory();

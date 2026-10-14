@@ -28,7 +28,7 @@ juce::Component* findById(juce::Component* root, const juce::String& id) {
 float actual(CrowdMikeAudioProcessor& p, Mod m, int inst, int e) { return kit::actual(p, ParamBank::index(m, inst, e)); }
 juce::File snapDir() {
     if (const char* d = std::getenv("CM_SNAPSHOT_DIR")) { juce::File f(d); f.createDirectory(); return f; }
-    return juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("cm_snapshots");
+    { auto d = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("cm_snapshots"); d.createDirectory(); return d; }
 }
 }
 
