@@ -77,7 +77,13 @@ Result restore(Parts p, const juce::XmlElement& source, int activeInputs, int ac
     }
     if (auto* s = xml.getChildByName("Show")) p.show.fromValueTree(juce::ValueTree::fromXml(*s));
     else p.show.resetToDefaults();
-    if (auto* sc = xml.getChildByName("Scenes")) p.scenes.fromValueTree(juce::ValueTree::fromXml(*sc));
+    if (auto* sc = xml.getChildByName("Scenes")) {
+        p.scenes.fromValueTree(juce::ValueTree::fromXml(*sc));
+    } else {   // a state without scenes must not keep the previous instance's scenes (same rule as the Show / Routing children)
+        juce::ValueTree none("Scenes");
+        none.setProperty("current", -1, nullptr);
+        p.scenes.fromValueTree(none);
+    }
 
     auto parameterState = juce::ValueTree::fromXml(xml);
     for (int i = parameterState.getNumChildren() - 1; i >= 0; --i) {
