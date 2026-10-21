@@ -27,6 +27,12 @@ ctest --test-dir build --output-on-failure          # use xvfb-run on headless L
 cmake --build build --target CrowdMike_All CrowdMike_CLAP
 ```
 
+## Wiki and verification status
+
+The wiki source is the [`wiki/`](wiki/Home.md) folder, published to the GitHub wiki by `.github/workflows/wiki-sync.yml` on pushes to `main`. It starts with [Getting Started](wiki/Getting-Started.md) and [Developer Guide](wiki/Developer-Guide.md).
+
+The documentation pass that added this section did not build or run the test targets above; the CI workflow (`.github/workflows/ci.yml`) and the release process document are the build and test evidence.
+
 ## Formats
 
 - Standalone application
