@@ -79,6 +79,8 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     outGain.snap(1.0f);
     bypassMix.prepare(sr, 10.0f);
     bypassMix.snap(0.0f);
+    playbackLevel.prepare(sr, 20.0f);
+    playbackLevelInit = false;
     busMatrix.prepare(sr, 10.0f);
     direct.resetToIdentity(numIn, numOut);
     direct.prepare(sr);
@@ -383,6 +385,21 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         const double bps = info.bpm / (60.0 * sampleRate);   // chunk start inside the host block -> its own ppq
         services.playback->setTempo({ info.bpm, info.ppqPosition + static_cast<double>(offset) * bps, info.hasTempo, info.playing });
         services.playback->process(dl, dr, n, panic);
+        // Playback level (GlobalP::PlaybackLevel): one smoothed master gain over every playback destination (master, groups, bus).
+        const float pbTarget = dsp::dbToGainOrZero(G[GlobalP::PlaybackLevel]);
+        if (!playbackLevelInit) { playbackLevel.snap(pbTarget); playbackLevelInit = true; }
+        playbackLevel.setTarget(pbTarget, rampMs);
+        if (playbackLevel.isSmoothing()) {
+            for (int s = 0; s < n; ++s) {
+                const float gv = playbackLevel.next();
+                for (int k = 0; k < 10; ++k) { dl[k][s] *= gv; dr[k][s] *= gv; }
+            }
+        } else if (playbackLevel.value() != 1.0f) {
+            for (int k = 0; k < 10; ++k) {
+                juce::FloatVectorOperations::multiply(dl[k], playbackLevel.value(), n);
+                juce::FloatVectorOperations::multiply(dr[k], playbackLevel.value(), n);
+            }
+        }
     }
 
     // ---- 4. input -> group mix (+ input FX sends, pre-group mix)
@@ -484,12 +501,13 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         updatePeak(meters.fxSendPeak[static_cast<size_t>(f)], sendR.channel(f), n);
     }
     dsp::FxContext ctx;
-    ctx.bpm = info.bpm; ctx.hasTempo = info.hasTempo; ctx.ppqPosition = info.ppqPosition; ctx.playing = info.playing;
+    ctx.bpm = info.bpm; ctx.hasTempo = info.hasTempo; ctx.ppqPosition = qt.ppq; ctx.playing = info.playing;   // qt.ppq already includes this chunk's offset into an oversized host block
     ctx.freeze = G[GlobalP::Freeze] >= 0.5f;
     ctx.densityMod = densityNow;
     const float* sendLp[kNumFx]; const float* sendRp[kNumFx]; float* retLp[kNumFx]; float* retRp[kNumFx];
     for (int f = 0; f < kNumFx; ++f) { sendLp[f] = sendL.channel(f); sendRp[f] = sendR.channel(f); retLp[f] = retL.channel(f); retRp[f] = retR.channel(f); }
     FxTriggerPlan plan;
+    plan.panicKillReverb = panic;
     {
         const float* pe = bank.effective(Mod::FxEcho);
         const float* pr = bank.effective(Mod::FxReverse);

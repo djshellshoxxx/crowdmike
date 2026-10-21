@@ -18,6 +18,9 @@ namespace crowdmike {
 struct FxTriggerPlan {
     bool echoOverride = false, reverseOverride = false;
     int echoFireAt = -1, reverseFireAt = -1;
+    // Panic: the Stadium Reverb tail is killed while panic is engaged, so a held (Freeze) or long tail cannot resurface at full
+    // level when the operator releases panic (ENGINE_SPEC section 9). The other effects keep their historic behaviour.
+    bool panicKillReverb = false;
 };
 
 class FxRack {
