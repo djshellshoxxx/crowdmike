@@ -108,7 +108,7 @@ public:
     // Recomputes meters.inRisk[] for the active inputs (message thread; called from the timer every ~200 ms).
     void updateFeedbackRisk();
 
-    static constexpr const char* kAppVersion = "0.2.0";
+    static constexpr const char* kAppVersion = "0.3.0";
 
 private:
     void timerCallback() override;
