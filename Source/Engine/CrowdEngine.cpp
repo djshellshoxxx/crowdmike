@@ -60,6 +60,8 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     for (auto& h : inHistory) h.prepare(sr, 4.0f, 160);
     for (auto& h : groupHistoryBuf) h.prepare(sr, 4.0f, 160);
     masterHistoryBuf.prepare(sr, 4.0f, 160);
+    loudness.prepare(sr);
+    edges = {};
 
     for (auto& s : mixL) { s.prepare(sr, 20.0f); s.snap(0.0f); }
     for (auto& s : mixR) { s.prepare(sr, 20.0f); s.snap(0.0f); }
@@ -215,6 +217,21 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     const bool bypass = G[GlobalP::Bypass] >= 0.5f;
     const bool rehearsal = G[GlobalP::Rehearsal] >= 0.5f;
     const bool unlockLimiters = G[GlobalP::UnlockLimiters] >= 0.5f;
+
+    // Show Report event counters: rising edges only (the first chunk after prepare() latches without counting).
+    {
+        const bool echoNow = bank.effective(Mod::FxEcho)[EchoP::Trigger] >= 0.5f;
+        const bool freezeNow = G[GlobalP::Freeze] >= 0.5f;
+        if (edges.init) {
+            if (panic && !edges.panic) meters.events.panicEvents.fetch_add(1, std::memory_order_relaxed);
+            if (echoNow && !edges.echo) meters.events.echoThrows.fetch_add(1, std::memory_order_relaxed);
+            if (freezeNow && !edges.freeze) meters.events.freezeEvents.fetch_add(1, std::memory_order_relaxed);
+        }
+        edges.init = true;
+        edges.panic = panic;
+        edges.echo = echoNow;
+        edges.freeze = freezeNow;
+    }
 
     // Scene-recall ramp: stretch every smoother for the duration of the recall.
     if (recallRequested.exchange(false)) {
@@ -433,6 +450,14 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     meters.correlation.store(correlation.getCorrelation(), std::memory_order_relaxed);
     meters.width.store(correlation.getWidth(), std::memory_order_relaxed);
     masterHistoryBuf.push(ml, n);
+    // Show Report feeds
+    loudness.push(ml, mr, n);
+    meters.crowdLevelDb.store(density.getLevelDb(), std::memory_order_relaxed);
+    meters.masterRmsDb.store(loudness.getMomentaryRmsDb(), std::memory_order_relaxed);
+    meters.shortTermLufs.store(loudness.getShortTermLufs(), std::memory_order_relaxed);
+    updatePeak(meters.reportMasterPeak, ml, n);
+    updatePeak(meters.reportMasterPeak, mr, n);
+    meters.events.reverseTriggers.store(fx.getReverseTriggerCount(), std::memory_order_relaxed);
 
     // ---- 8. output matrix: direct inputs + buses
     {
@@ -457,6 +482,8 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     // ---- 9. output stage (limiter forced on unless the operator unlocked output limiters)
     const float ceilingDb = G[GlobalP::OutCeiling];
     const float releaseMs = G[GlobalP::OutLimRelease];
+    bool reportClip = false;
+    float reportLimGr = std::abs(master.getLimiterGrDb());
     for (int c = 0; c < numOut; ++c) {
         const float* p = bank.effective(Mod::Output, c);
         const bool limOn = !unlockLimiters || p[OutputP::LimOn] >= 0.5f;
@@ -468,6 +495,15 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         meters.outPeak[static_cast<size_t>(c)].update(m);
         if (m >= 1.0f) meters.outClip[static_cast<size_t>(c)].store(true, std::memory_order_relaxed);
         meters.outLimGrDb[static_cast<size_t>(c)].store(outputs[static_cast<size_t>(c)].getLimiterGrDb(), std::memory_order_relaxed);
+        reportClip = reportClip || m >= 1.0f;
+        reportLimGr = std::max(reportLimGr, std::abs(outputs[static_cast<size_t>(c)].getLimiterGrDb()));
+    }
+    {   // Show Report episodes: clip = any output reached full scale; limiter = gain reduction above 1 dB (re-arms below 0.3 dB)
+        if (reportClip && !edges.clip) meters.events.clipEvents.fetch_add(1, std::memory_order_relaxed);
+        edges.clip = reportClip;
+        const bool limNow = edges.limiter ? reportLimGr > 0.3f : reportLimGr > 1.0f;
+        if (limNow && !edges.limiter) meters.events.limiterEvents.fetch_add(1, std::memory_order_relaxed);
+        edges.limiter = limNow;
     }
 
     // ---- 10. record taps (before panic / rehearsal so recording continues), then analysis feed

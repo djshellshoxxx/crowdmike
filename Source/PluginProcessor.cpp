@@ -30,6 +30,11 @@ CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
     hub.actions.clipTrigger = [this](int slot) { playback.trigger(slot); };
     hub.actions.clipStop = [this](int slot) { playback.stop(slot); };
     hub.actions.stopAllClips = [this] { playback.stopAll(); };
+    reportService.setAppVersion(kAppVersion);
+    reportService.setSceneNameProvider([this] { return getCurrentSceneName(); });
+    reportService.setFeedbackAnalysisControl([this](bool on) { setFeedbackAnalysisActive(on); });
+    reportService.setDeviceStatusProvider([this] { return hostServices != nullptr ? hostServices->getDeviceStatus() : DeviceStatus {}; });
+    scenes.onRecalled = [this] { reportService.noteSceneRecall(getCurrentSceneName()); };
     if (juce::MessageManager::getInstanceWithoutCreating() != nullptr) {
         hub.startPolling();
         startTimerHz(20);
@@ -40,6 +45,7 @@ CrowdMikeAudioProcessor::~CrowdMikeAudioProcessor()
 {
     stopTimer();
     osc.stop();
+    reportService.shutdown(wrapperType == wrapperType_Standalone);   // finalise + export an open take; export the show on standalone exit
     recorder.shutdown();
 }
 
@@ -463,6 +469,7 @@ void CrowdMikeAudioProcessor::timerCallback()
         if (isRecording()) stopRecording(); else startRecording();
     }
     if (++riskTicks >= 4) { riskTicks = 0; updateFeedbackRisk(); }   // 20 Hz timer -> ~200 ms
+    reportService.poll(juce::Time::getMillisecondCounterHiRes() * 0.001);   // gates itself to 1 Hz
 }
 
 void CrowdMikeAudioProcessor::updateFeedbackRisk()

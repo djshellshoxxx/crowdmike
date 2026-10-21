@@ -28,6 +28,7 @@ DeviceController::DeviceController(CrowdMikeAudioProcessor& p, const juce::File&
 
 DeviceController::~DeviceController() {
     stopTimer();
+    processor.setHostServices(nullptr);   // the processor outlives us and exports the Show Report from its destructor
     deviceManager.removeChangeListener(this);
     deviceManager.removeAudioCallback(this);
     deviceManager.removeMidiInputDeviceCallback({}, &midiCollector);

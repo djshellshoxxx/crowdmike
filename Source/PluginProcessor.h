@@ -16,6 +16,7 @@
 #include "Recording/PlaybackEngine.h"
 #include "Recording/RecorderEngine.h"
 #include "Recording/SoundcheckPlayer.h"
+#include "Report/ShowReportService.h"
 #include "Routing/RoutingState.h"
 #include "Standalone/HostServices.h"
 
@@ -63,6 +64,7 @@ public:
     crowdmike::rec::RecorderEngine& getRecorder() noexcept { return recorder; }
     crowdmike::rec::PlaybackEngine& getPlayback() noexcept { return playback; }
     crowdmike::rec::SoundcheckPlayer& getSoundcheck() noexcept { return soundcheck; }
+    crowdmike::report::ShowReportService& getReport() noexcept { return reportService; }   // Crowd Energy Tracker + Show Report
     juce::UndoManager& getUndoManager() noexcept { return undoManager; }
     void setHostServices(crowdmike::HostServices* services) noexcept { hostServices = services; }
     crowdmike::HostServices* getHostServices() const noexcept { return hostServices; }
@@ -131,6 +133,7 @@ private:
     crowdmike::rec::SoundcheckPlayer soundcheck;
     crowdmike::HostServices* hostServices = nullptr;
     crowdmike::AnalysisThread analysis { [this] { engine.feedback().analyse(); } };   // after engine: stopped first
+    crowdmike::report::ShowReportService reportService { engine, recorder, show };
     int riskTicks = 0;
 
     std::atomic<int> activeInputChannels { 2 }, activeOutputChannels { 2 };

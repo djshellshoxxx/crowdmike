@@ -12,6 +12,7 @@ Parameter IDs are frozen (see `Source/Core/ParamTables.h`).
 | Routing | `Source/Routing` | DSP, Core | Route matrices, validation, wiring templates, feedback-risk scoring. |
 | Engine | `Source/Engine` | DSP, Routing, Core | `CrowdEngine`: the per-block pipeline (ENGINE_SPEC section 2). Format neutral. |
 | Recording | `Source/Recording` | JUCE audio_formats, threads | Recorder FIFOs/worker, playback, soundcheck. |
+| Report | `Source/Report` | Core, Engine meters, Recording (marker API), JUCE core | Crowd Energy Tracker + Show Report (docs/SHOW_REPORT_SPEC.md). Model and writers are pure (no GUI); `ShowReportService` is the message-thread adapter. Built into `crowdmike_tests`. |
 | Control | `Source/Control` | Core, JUCE osc/midi | Scenes, macros, MIDI learn, OSC, command queue. |
 | UI | `Source/UI` | everything above (read-only views) | Components. Never owns audio state. |
 | Plugin / Standalone | `Source/Plugin*`, `Source/Standalone` | everything | Thin wrappers. |
@@ -124,3 +125,17 @@ Spec: `docs/DUCKER_SPEC.md`. Engine wiring in `CrowdEngine::applyDucker` (copies
 * `CrowdEngine` owns all DSP state; the processor/GUI talk to it through atomics and lock-free queues only.
 * Panic is a dedicated atomic checked every block; recorder taps are taken before the panic gain.
 * Every output channel passes through the same lookahead limiter, so plug-in latency is a single constant reported to the host.
+
+## Show Report (Source/Report, see docs/SHOW_REPORT_SPEC.md)
+
+| Module | File | Contract summary |
+|---|---|---|
+| LoudnessMeter | `DSP/LoudnessMeter.*` | K-weighted 3 s loudness (no gating) and 400 ms RMS. `push()` is noexcept and allocation free; `prepare()` allocates. |
+| ReportTypes | `Report/ReportTypes.h` | Plain data: Sample, PeakEvent, events, Summary, ReportData. Schema "crowdmike.show-report" v1. |
+| PeakDetector | `Report/PeakDetector.*` | Adaptive baseline, min prominence (dB) and spacing (s); sensitivity 0..1 maps to both. |
+| EnergyTracker | `Report/EnergyTracker.*` | 1 Hz samples, bounded memory (halved in place at 43200 samples), capped peaks/events, `buildReport()`. |
+| ReportWriters | `Report/ReportWriters.*` | Pure `renderHtml/Csv/Json`; escapes all user strings; locale independent numbers. Golden-file tested. |
+| ShowReportService | `Report/ShowReportService.*` | Message thread only. Polls engine meters at 1 Hz, drops "Crowd peak +x dB" markers via `MarkerSink`, exports on recorder stop, on demand and on standalone exit. |
+| Engine feeds | `Engine/EngineMeters.h` | `crowdLevelDb`, `masterRmsDb`, `shortTermLufs`, `reportMasterPeak`, `events.*` relaxed atomics written by the audio thread (edge counters, no locks). |
+| Recorder accessor | `Recording/RecorderEngine.h` | `addMarkerAt(frame, label, type)`: additive marker API at an explicit frame. |
+| UI panels | `UI/ReportPanels.*` | `EnergySparkline` (Live page, id `live.energy`) and `ShowReportPanel` (Record page, ids `report.*`). Settings live in `ShowModel::report` (child `Report`, absent in old states). |

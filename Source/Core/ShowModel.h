@@ -69,6 +69,14 @@ struct UiSettings {
     unsigned recallScope = 0xFFu;   // SceneScope bits used by operator recalls (GUI / keyboard)
 };
 
+// Crowd Energy Tracker + Show Report settings (SHOW_REPORT_SPEC section 7). Missing in states saved before the feature.
+struct ReportSettings {
+    bool enabled = true;          // track crowd energy
+    bool autoMarkers = true;      // drop "Crowd peak" recorder markers while recording
+    bool autoExport = true;       // export the report on recorder stop / standalone exit
+    float peakSensitivity = 0.5f; // 0..1, higher = more peaks
+};
+
 class ShowModel {
 public:
     ShowModel();
@@ -93,7 +101,8 @@ public:
     OscSettings osc;
     RecorderSettings recorder;
     UiSettings ui;
-    std::vector<int> lockedParams;      // global ParamBank indices excluded from scene recall
+    ReportSettings report;
+    std::vector<int> lockedParams;     // global ParamBank indices excluded from scene recall
     juce::ValueTree playback { "Playback" };   // opaque clip/bed/soundcheck references (owned by the recording layer)
 
     bool isLocked(int paramIndex) const;

@@ -38,5 +38,14 @@ struct EngineMeters {
     std::atomic<float> duckGrDb { 0.0f };                            // performer ducker: applied reduction, >= 0 dB
     AtomicPeak duckKeyPeak;                                          // ducker detector (filtered key), linear
     std::atomic<bool> duckOpen { false };                            // ducker detector state
+
+    // ---- Show Report feeds (SHOW_REPORT_SPEC section 3). Audio thread writes, the report tracker reads at 1 Hz.
+    std::atomic<float> crowdLevelDb { -120.0f };     // 300 ms RMS of the summed crowd groups (pre-FX), dBFS
+    std::atomic<float> masterRmsDb { -120.0f };      // 400 ms unweighted RMS of the master bus, dBFS
+    std::atomic<float> shortTermLufs { -120.0f };    // K-weighted 3 s loudness (approximation, no gating)
+    AtomicPeak reportMasterPeak;                     // reset only by the report tracker
+    struct EventCounters {                           // cumulative since process start; episodes / rising edges, not blocks
+        std::atomic<std::uint32_t> clipEvents { 0 }, limiterEvents { 0 }, panicEvents { 0 }, echoThrows { 0 }, reverseTriggers { 0 }, freezeEvents { 0 };
+    } events;
 };
 }

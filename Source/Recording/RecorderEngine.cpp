@@ -777,6 +777,17 @@ void RecorderEngine::addMarker(const juce::String& label, MarkerType type) {
     if ((int) markers.size() < kMaxMarkers) markers.push_back(m);
 }
 
+void RecorderEngine::addMarkerAt(juce::int64 frame, const juce::String& label, MarkerType type) {
+    Marker m;
+    m.frame = juce::jlimit<juce::int64>(0, framePosition.load(std::memory_order_acquire), frame);
+    m.label = label;
+    m.type = type;
+    m.wallClock = juce::Time::getCurrentTime();
+    const juce::ScopedLock sl(markerLock);
+    m.scene = markerScene;
+    if ((int) markers.size() < kMaxMarkers) markers.push_back(m);
+}
+
 std::vector<Marker> RecorderEngine::getMarkers() const {
     const juce::ScopedLock sl(markerLock);
     return markers;
