@@ -367,7 +367,8 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         const auto r = clipQuant.process(request, qt, n);
         if (r.kind != dsp::QuantiseResult::Kind::None) {   // Passthrough (no quantising) or Fire
             if (services.playback != nullptr)
-                for (int k = 0; k < clipPendingCount; ++k) services.playback->triggerFromAudioThread(clipPending[static_cast<size_t>(k)], r.kind == dsp::QuantiseResult::Kind::Fire ? r.offset : 0);
+                for (int k = 0; k < clipPendingCount; ++k) services.playback->triggerFromAudioThread(clipPending[static_cast<size_t>(k)], r.kind == dsp::QuantiseResult::Kind::Fire ? r.offset : 0,
+                                                                r.kind == dsp::QuantiseResult::Kind::Fire);
             clipPendingCount = 0;
         }
     }
