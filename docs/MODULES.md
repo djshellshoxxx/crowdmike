@@ -108,6 +108,17 @@ class FeedbackDetector { void prepare(double sr);   // allocates
   void reset(); };
 ```
 
+### Ducker (`Source/DSP/Ducker.*`)
+```cpp
+class Ducker { void prepare(double sr,int maxBlock);   // allocates
+  bool process(const float* key,int n,const float* duckP,bool enabled,float* gain) noexcept;  // per-sample linear gain curve, RT-safe
+  float getGainReductionDb() const; float getKeyLevelDb() const; bool isOpen() const; void reset(); };
+```
+Spec: `docs/DUCKER_SPEC.md`. Engine wiring in `CrowdEngine::applyDucker` (copies buses, so recorder group/FX taps stay pre-duck).
+
+### Line Check (`Source/Engine/LineCheck*.{h,cpp}`)
+`ProbeBank` (audio thread, lock-free SPSC frames per input), `Collector`/`Analyser` (message thread, verdicts, trim and HPF proposals), `applyProposals`/`applyQuickStartDefaults` (one undo transaction). Spec: `docs/LINE_CHECK_SPEC.md`.
+
 ## Engine invariants
 
 * `CrowdEngine` owns all DSP state; the processor/GUI talk to it through atomics and lock-free queues only.

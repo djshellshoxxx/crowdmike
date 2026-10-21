@@ -7,6 +7,7 @@
 #include "Engine/TapMap.h"
 #include "UI/EditKit.h"
 #include "UI/InputAnalysis.h"
+#include "UI/LineCheckPanel.h"
 #include "UI/MatrixGrid.h"
 #include "UI/Meters.h"
 #include "UI/RoutingUndo.h"
@@ -159,7 +160,10 @@ public:
     }
     void refreshNames() {
         const auto& show = proc.getShow();
-        indexLabel.setText((selected ? juce::String::fromUTF8("\xe2\x96\xb6") : juce::String()) + juce::String(i + 1), juce::dontSendNotification);
+        isDuckKey = kit::actual(proc, ParamBank::index(Mod::Global, 0, duckBase() + DuckP::Key)) > 0.5f
+                    && juce::roundToInt(kit::actual(proc, ParamBank::index(Mod::Global, 0, duckBase() + DuckP::Key))) == i + 1;
+        indexLabel.setText((selected ? juce::String::fromUTF8("\xe2\x96\xb6") : juce::String()) + juce::String(i + 1) + (isDuckKey ? " KEY" : ""), juce::dontSendNotification);
+        indexLabel.setTooltip(isDuckKey ? "This input is the performer ducker's key input" : "");
         if (!nameLabel.isBeingEdited()) nameLabel.setText(show.inputDisplayName(i), juce::dontSendNotification);
         if (!zoneLabel.isBeingEdited()) zoneLabel.setText(show.input(i).zone.isNotEmpty() ? show.input(i).zone : juce::String("(zone)"), juce::dontSendNotification);
         // linked follower: show it as the right half of the pair
@@ -185,6 +189,10 @@ public:
     }
     void tick() {
         const auto v = [this](int e) { return kit::actual(proc, pidx(i, e)); };
+        {   // follow the ducker key selection (a global parameter that can change from anywhere)
+            const bool key = juce::roundToInt(kit::actual(proc, ParamBank::index(Mod::Global, 0, duckBase() + DuckP::Key))) == i + 1;
+            if (key != isDuckKey) refreshNames();
+        }
         const float dsGr = std::abs(proc.getEngine().inputChannelForMeters(i).getDeEssGrDb());
         dsSummary.setText(kit::fmtHz(v(InputP::DeEssFreq)) + "Hz" + (v(InputP::DeEssOn) >= 0.5f ? "  GR " + juce::String(dsGr, 1) : juce::String("  off")),
                           juce::dontSendNotification);
@@ -236,7 +244,7 @@ private:
     EditorContext& ctx;
     CrowdMikeAudioProcessor& proc;
     const int i;
-    bool live = false, selected = false;
+    bool live = false, selected = false, isDuckKey = false;
     juce::Label indexLabel, nameLabel, zoneLabel, dsSummary, compSummary;
     juce::TextButton sourceBtn;
     ParamToggle link, pol, mute, solo, hpOn, lpOn, notchOn, dsOn, compOn;
@@ -364,7 +372,8 @@ private:
 // ================================================================= page
 class InputsPage final : public Page, private Tickable {
 public:
-    explicit InputsPage(EditorContext& c) : Page(c), advanced(c) {
+    explicit InputsPage(EditorContext& c) : Page(c), advanced(c), lineCheck(c),
+        duckKey(c.proc, ParamBank::index(Mod::Global, 0, duckBase() + DuckP::Key)) {
         kit::styleLabel(title, 16.0f, true, palette().accent);
         addAndMakeVisible(title);
         kit::styleLabel(hint, 11.5f, false, palette().textMuted);
@@ -381,13 +390,26 @@ public:
         advancedBtn.setTooltip("Show the advanced analysis section for the selected input (filter graph, spectrum, waveform, correlation, dynamics, feedback)");
         advancedBtn.onClick = [this] { updateAdvanced(); resized(); };
         addAndMakeVisible(advancedBtn);
+        lineCheckBtn.setClickingTogglesState(true);
+        lineCheckBtn.setComponentID("inputs-linecheck-toggle");
+        lineCheckBtn.setTooltip("Line Check: listen to every input for 10 seconds, get plain-language findings and one-click trim / high-pass proposals");
+        lineCheckBtn.onClick = [this] { updateLineCheck(); resized(); };
+        addAndMakeVisible(lineCheckBtn);
+        duckKeyLabel.setText("Duck key", juce::dontSendNotification);
+        kit::styleLabel(duckKeyLabel, 11.5f, false, palette().textMuted, juce::Justification::centredRight);
+        duckKey.setComponentID("inputs-duck-key");
+        duckKey.setTooltip("Performer ducker key input (post-trim, pre-processing). While it is active the crowd groups / FX returns are ducked. None = off.");
+        duckKey.setTitle("Ducker key input");
+        addAndMakeVisible(duckKeyLabel);
+        addAndMakeVisible(duckKey);
+        addChildComponent(lineCheck);
         viewport.setViewedComponent(&content, false);
         viewport.setScrollBarsShown(true, false);
         addAndMakeVisible(viewport);
         addChildComponent(advanced);
         rebuildRows();
     }
-    ~InputsPage() override { advanced.setLive(false); }
+    ~InputsPage() override { advanced.setLive(false); lineCheck.setActive(false); }
 
     void pageShown() override {
         live = true;
@@ -395,9 +417,11 @@ public:
         for (auto* r : rows) { r->setLive(true); r->refreshNames(); r->refreshRec(); }
         syncSelection();
         updateAdvanced();
+        updateLineCheck();
     }
     void pageHidden() override {
         live = false;
+        lineCheck.setActive(false);
         for (auto* r : rows) r->setLive(false);
         advanced.setLive(false);
     }
@@ -413,9 +437,18 @@ public:
         title.setBounds(top.removeFromLeft(px(170)));
         advancedBtn.setBounds(top.removeFromRight(px(150)).reduced(0, px(1)));
         top.removeFromRight(px(6));
+        lineCheckBtn.setBounds(top.removeFromRight(px(110)).reduced(0, px(1)));
+        top.removeFromRight(px(6));
         unitBox.setBounds(top.removeFromRight(px(150)).reduced(0, px(1)));
+        top.removeFromRight(px(6));
+        duckKey.setBounds(top.removeFromRight(px(100)).reduced(0, px(1)));
+        duckKeyLabel.setBounds(top.removeFromRight(px(64)));
         hint.setBounds(top);
         r.removeFromTop(px(4));
+        if (lineCheck.isVisible()) {
+            lineCheck.setBounds(r.removeFromBottom(juce::jmin(LineCheckPanel::preferredHeight(juce::jmax(2, rows.size())), juce::jmax(px(200), r.getHeight() * 55 / 100))));
+            r.removeFromBottom(px(6));
+        }
         if (advanced.isVisible()) {
             advanced.setBounds(r.removeFromBottom(juce::jmax(px(220), r.getHeight() * 45 / 100)));
             r.removeFromBottom(px(6));
@@ -437,6 +470,12 @@ private:
         lastSelected = selected;
         for (int k = 0; k < rows.size(); ++k) rows[k]->setSelected(k == selected);
         if (advanced.isVisible()) advanced.setInput(selected);
+    }
+    void updateLineCheck() {
+        const bool open = lineCheckBtn.getToggleState();
+        lineCheckBtn.setButtonText(open ? juce::String::fromUTF8("\xe2\x96\xbe Line Check") : juce::String::fromUTF8("\xe2\x96\xb8 Line Check"));
+        lineCheck.setVisible(open);
+        lineCheck.setActive(open && live);
     }
     void updateAdvanced() {
         const bool open = advancedBtn.getToggleState();
@@ -476,6 +515,10 @@ private:
     juce::Component content;
     juce::OwnedArray<InputRow> rows;
     AdvancedPanel advanced;
+    LineCheckPanel lineCheck;
+    ParamChoice duckKey;
+    juce::Label duckKeyLabel;
+    juce::TextButton lineCheckBtn { "Line Check" };
     bool live = false;
     int selected = 0, lastSelected = 0;
 };

@@ -32,5 +32,11 @@ struct EngineMeters {
     std::atomic<std::uint64_t> blocks { 0 }, overruns { 0 };        // overrun: block took longer than its real-time budget
     std::atomic<bool> panicActive { false }, bypassActive { false }, rehearsalActive { false }, soundcheckActive { false };
     std::array<std::atomic<float>, kMaxInputs> inRisk {};            // feedback-risk score 0..1 (advisory)
+    // ---- appended (docs/DUCKER_SPEC.md, docs/ENGINE_SPEC.md "Meters added for usability")
+    std::array<std::atomic<float>, kMaxGroups> groupLimGrDb {};      // group limiter gain reduction (<= 0 dB; use abs() for a bar)
+    std::array<AtomicPeak, kNumFx> fxSendPeak;                       // level of the send bus entering each effect (max of L/R, linear)
+    std::atomic<float> duckGrDb { 0.0f };                            // performer ducker: applied reduction, >= 0 dB
+    AtomicPeak duckKeyPeak;                                          // ducker detector (filtered key), linear
+    std::atomic<bool> duckOpen { false };                            // ducker detector state
 };
 }

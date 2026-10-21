@@ -4,6 +4,7 @@
 //   middle : 8 crowd-group strips (one row of 8 or a 4x2 grid depending on the room)
 //   right  : master section (intensity, width/correlation, combined waveform, FX activity, limiters, output bank)
 // Layout is proportional so it works from 1100x650 to 4K. Meters only consume engine peaks while the page is shown.
+#include "UI/DuckerStrip.h"
 #include "UI/LiveStrips.h"
 #include "UI/Pages.h"
 
@@ -11,8 +12,9 @@ namespace crowdmike::ui {
 namespace {
 class LivePage final : public Page, private Tickable {
 public:
-    explicit LivePage(EditorContext& c) : Page(c), ribbon(c), master(c, live) {
+    explicit LivePage(EditorContext& c) : Page(c), ribbon(c), duck(c, live), master(c, live) {
         addAndMakeVisible(ribbon);
+        addAndMakeVisible(duck);
         inputViewport.setViewedComponent(&inputHolder, false);
         inputViewport.setScrollBarsShown(false, true);
         inputViewport.setTitle("Input strips");
@@ -46,6 +48,8 @@ public:
         auto r = getLocalBounds().reduced(6);
         const int H = r.getHeight();
         ribbon.setBounds(r.removeFromTop(juce::jlimit(30, 48, H / 16)));
+        r.removeFromTop(4);
+        duck.setBounds(r.removeFromTop(DuckerStrip::preferredHeight()));
         r.removeFromTop(6);
         const int W = r.getWidth();
         auto masterArea = r.removeFromRight(juce::jlimit(190, 460, W / 5));
@@ -98,6 +102,7 @@ private:
 
     LiveFlag live;
     FlowRibbon ribbon;
+    DuckerStrip duck;
     juce::Label inputsTitle, groupsTitle;
     juce::Viewport inputViewport;
     juce::Component inputHolder;

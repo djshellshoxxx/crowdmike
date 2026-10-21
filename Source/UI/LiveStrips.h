@@ -83,9 +83,11 @@ private:
     const LiveFlag& live;
     juce::Label name, readout;
     LevelMeter meterL, meterR;
-    GainReductionMeter gr;
+    GainReductionMeter gr, limGr;     // compressor / limiter gain reduction
     ParamSlider trim;
     ParamToggle mute, solo;
+public:
+    GainReductionMeter& limiterMeter() { return limGr; }     // test hook
 };
 
 class LiveMasterSection final : public juce::Component, private Tickable {
@@ -106,7 +108,8 @@ private:
     float intensity = 0.0f, correlation = 1.0f, width = 0.0f, masterLimGr = 0.0f, outLimGr = 0.0f;
     HistoryStrip history;
     LevelMeter masterL, masterR;
-    juce::OwnedArray<LevelMeter> fxMeters;
+    juce::OwnedArray<LevelMeter> fxMeters;       // return activity
+    juce::OwnedArray<LevelMeter> fxSendMeters;   // send-bus level entering each effect (per-send input meter)
     juce::OwnedArray<juce::Label> fxLabels;
     GainReductionMeter limGr, outGr;
     juce::Label limLabel, outLimLabel;

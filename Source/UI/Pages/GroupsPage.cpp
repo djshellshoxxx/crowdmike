@@ -2,6 +2,7 @@
 // polarity, reinforcement delay, HPF/LPF, compressor (with presets), limiter, FX sends, width and a routing
 // destination summary (from the output bus matrix) with a jump to the Matrix page.
 #include "UI/Pages.h"
+#include "Engine/TapMap.h"
 #include "UI/EditKit.h"
 #include "UI/MatrixGrid.h"
 #include "UI/Meters.h"
@@ -39,7 +40,7 @@ public:
         hpHz("Hz", slider(proc, gidx(g, GroupP::HpHz)), 18), lpHz("Hz", slider(proc, gidx(g, GroupP::LpHz)), 18),
         thr("Thr", slider(proc, gidx(g, GroupP::GrpCompThr), 50), 24), ratio("Ratio", slider(proc, gidx(g, GroupP::GrpCompRatio), 44), 32),
         ceil("Ceil", slider(proc, gidx(g, GroupP::GrpLimCeil), 50), 26), width("Width", slider(proc, gidx(g, GroupP::Width), 44), 36),
-        grMeter(18.0f) {
+        grMeter(18.0f), limMeter(18.0f) {
         setComponentID("group-row-" + juce::String(g));
         setTitle("Group " + juce::String(g + 1));
         static const char* sendNames[] = { "Dly", "Echo", "Tape", "Rev", "Noise" };
@@ -52,6 +53,8 @@ public:
         meterL.setTooltip("Group level L (click to clear clip)"); meterR.setTooltip("Group level R (click to clear clip)");
         grMeter.source = [this] { return live ? std::abs(proc.getMeters().groupGrDb[static_cast<size_t>(g)].load()) : 0.0f; };
         grMeter.setTitle("Group compressor gain reduction");
+        limMeter.source = [this] { return live ? std::abs(proc.getMeters().groupLimGrDb[static_cast<size_t>(g)].load()) : 0.0f; };
+        limMeter.setTitle("Group limiter gain reduction");
 
         kit::styleLabel(nameLabel, 13.0f, true);
         nameLabel.setEditable(false, true, false);
@@ -95,7 +98,7 @@ public:
         matrixBtn.onClick = [this] { ctx.select({ Selection::Kind::Group, g }); if (ctx.navigate) ctx.navigate(PageId::Matrix); };
 
         for (juce::Component* comp : std::initializer_list<juce::Component*> { &meterL, &meterR, &nameLabel, &memberSummary, &members, &trim, &balance, &mute, &solo, &pol,
-                                                                             &delay, &hpOn, &hpHz, &lpOn, &lpHz, &compOn, &thr, &ratio, &grMeter, &presetBtn, &limOn, &ceil,
+                                                                             &delay, &hpOn, &hpHz, &lpOn, &lpHz, &compOn, &thr, &ratio, &grMeter, &presetBtn, &limOn, &ceil, &limMeter,
                                                                              &width, &routeSummary, &matrixBtn })
             addAndMakeVisible(comp);
         for (auto* s : sends) addAndMakeVisible(s);
@@ -132,7 +135,7 @@ private:
         std::vector<kit::FlowItem> items {
             { &nameLabel, 150 }, { &members, memberW }, { &memberSummary, 170 }, { &trim, 170 }, { &balance, 130 }, { &mute, 32 }, { &solo, 32 }, { &pol, 34 },
             { &delay, 170 }, { &hpOn, 52, true }, { &hpHz, 130 }, { &lpOn, 52 }, { &lpHz, 130 }, { &compOn, 62 }, { &thr, 124 }, { &ratio, 124 },
-            { &grMeter, 34 }, { &presetBtn, 28 }, { &limOn, 50 }, { &ceil, 124 }, { &width, 130 } };
+            { &grMeter, 34 }, { &presetBtn, 28 }, { &limOn, 50 }, { &ceil, 124 }, { &limMeter, 34 }, { &width, 130 } };
         bool first = true;
         for (auto* s : sends) { items.push_back({ s, 120, first }); first = false; }
         items.push_back({ &routeSummary, 180 });
@@ -148,7 +151,7 @@ private:
     ParamToggle mute, solo, pol, hpOn, lpOn, compOn, limOn;
     kit::Captioned trim, balance, delay, hpHz, lpHz, thr, ratio, ceil, width;
     juce::OwnedArray<kit::Captioned> sends;
-    GainReductionMeter grMeter;
+    GainReductionMeter grMeter, limMeter;
     juce::TextButton presetBtn { juce::String::fromUTF8("\xe2\x96\xbe") };
 };
 
@@ -161,6 +164,16 @@ public:
         hint.setText("Each group is a stereo submix: Inputs -> Group -> FX sends -> Master. Numbered cells = member inputs.", juce::dontSendNotification);
         addAndMakeVisible(title);
         addAndMakeVisible(hint);
+        for (int f = 0; f < kNumFx; ++f) {
+            auto* l = sendLabels.add(new juce::Label({}, TapMap::defaultName(TapMap::forFx(f)).upToLastOccurrenceOf(" ", false, false)));
+            kit::styleLabel(*l, 11.0f, false, palette().textMuted);
+            auto* m = sendMeters.add(new LevelMeter(LevelMeter::Orientation::Horizontal));
+            m->source = [this, f] { return live ? proc.getMeters().fxSendPeak[static_cast<size_t>(f)].getAndReset() : 0.0f; };
+            m->setTooltip(l->getText() + " send bus level (the input of the effect, sum of all input and group sends)");
+            m->setTitle(l->getText() + " send bus level");
+            addAndMakeVisible(l);
+            addAndMakeVisible(m);
+        }
         for (int g = 0; g < kMaxGroups; ++g) content.addAndMakeVisible(rows.add(new GroupRow(c, g)));
         viewport.setViewedComponent(&content, false);
         viewport.setScrollBarsShown(true, false);
@@ -183,6 +196,16 @@ public:
         auto top = r.removeFromTop(px(28));
         title.setBounds(top.removeFromLeft(px(170)));
         hint.setBounds(top);
+        r.removeFromTop(px(2));
+        {   // FX send-bus level meters (input of each effect)
+            auto bar = r.removeFromTop(px(18));
+            const int cw = bar.getWidth() / juce::jmax(1, kNumFx);
+            for (int f = 0; f < kNumFx; ++f) {
+                auto cell = bar.removeFromLeft(cw).reduced(px(2), 0);
+                sendLabels[f]->setBounds(cell.removeFromLeft(juce::jmin(px(60), cell.getWidth() / 3)));
+                sendMeters[f]->setBounds(cell.reduced(0, px(4)));
+            }
+        }
         r.removeFromTop(px(4));
         viewport.setBounds(r);
         layoutRows();
@@ -209,6 +232,8 @@ private:
     juce::Viewport viewport;
     juce::Component content;
     juce::OwnedArray<GroupRow> rows;
+    juce::OwnedArray<juce::Label> sendLabels;
+    juce::OwnedArray<LevelMeter> sendMeters;
     bool live = false;
     std::uint32_t lastRev = 0xffffffffu;
     int lastInputs = -1;
