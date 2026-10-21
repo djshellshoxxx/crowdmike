@@ -46,6 +46,12 @@ Features:
 - optional notes
 - hotkey/MIDI/OSC assignment
 
+Recall scope: every recall path (GUI, hotkeys, MIDI, OSC, next/previous) uses `SceneBank::recall(slot, scope, ramp)` with the
+show's current recall scope (`ui.recallScope`, bit mask: inputs, groups, fx, master, outputs, routing, names, macros). The
+scope can be changed remotely via OSC `/crowdmike/scene/scope <mask 1..255>` or `/crowdmike/scene/scope/<name> [0|1]`
+(no argument toggles; `all` selects every scope) and via the MIDI binding target `SceneScopeToggle`. An empty scope is
+never accepted. See BEAT_SYNC_SPEC.md section 12.
+
 ## 4. Macros
 
 At least 8 global macros.
@@ -79,6 +85,10 @@ Support MIDI learn for:
 - recorder controls
 - playback clips
 - panic
+- tap tempo, resync downbeat and recall-scope toggles (binding targets `TempoTap`, `TempoResync`, `SceneScopeToggle`)
+
+MIDI realtime clock (0xF8/0xFA/0xFB/0xFC) is consumed by the tempo hub when `tempo.source` is MIDI Clock
+(BEAT_SYNC_SPEC.md section 5).
 
 Support:
 
@@ -100,6 +110,8 @@ Address examples:
 - `/crowdmike/scene/3/select`
 - `/crowdmike/record/start`
 - `/crowdmike/panic`
+- `/crowdmike/scene/scope` and `/crowdmike/scene/scope/<inputs|groups|fx|master|outputs|routing|names|macros|all>`
+- `/crowdmike/tempo/tap`, `/crowdmike/tempo/resync`, `/crowdmike/tempo/<bpm|source|quantise|nudge|autoSource|barBeats>`
 
 OSC write control should be optional and bindable to localhost or selected interface.
 
