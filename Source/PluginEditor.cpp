@@ -90,7 +90,7 @@ void CrowdMikeAudioProcessorEditor::resized()
 {
     auto r = getLocalBounds();
     const bool compact = processor.getShow().ui.compact || getWidth() < 1180;
-    statusBar.setBounds(r.removeFromTop(44));
+    statusBar.setBounds(r.removeFromTop(StatusBar::kHeight));
     strip.setBounds(r.removeFromBottom(compact ? 84 : 96));
     navRail.setBounds(r.removeFromLeft(compact ? 96 : 118));
     const bool showInspector = inspectorVisible && !compact && current != PageId::Settings && current != PageId::Matrix;

@@ -9,7 +9,7 @@ namespace {
 class SettingsPage final : public Page {
 public:
     explicit SettingsPage(EditorContext& c)
-        : Page(c), audio(c), midi(c), osc(c), uiPrefs(c), files(c), keys(c) {
+        : Page(c), audio(c), midi(c), osc(c), uiPrefs(c), tempoSec(c), files(c), keys(c) {
         for (auto* s : sections()) {
             s->onLayoutChanged = [this] { layoutContent(); };
             content.addAndMakeVisible(s);
@@ -29,6 +29,7 @@ public:
     MidiSettingsSection& midiSection() { return midi; }
     OscSettingsSection& oscSection() { return osc; }
     UiSettingsSection& uiSection() { return uiPrefs; }
+    TempoSettingsSection& tempoSection() { return tempoSec; }
 
 private:
     void showModelChanged() override { uiPrefs.refresh(); }
@@ -41,7 +42,7 @@ private:
         const int gap = 8;
         const bool twoCols = w >= 1000;
         const int colW = twoCols ? (w - 3 * gap) / 2 : w - 2 * gap;
-        std::vector<SettingsSection*> left { &audio, &midi }, right { &osc, &uiPrefs, &files, &keys };
+        std::vector<SettingsSection*> left { &audio, &midi }, right { &osc, &uiPrefs, &tempoSec, &files, &keys };
         if (!twoCols) { left = sections(); right.clear(); }
         const auto stack = [&](const std::vector<SettingsSection*>& list, int x) {
             int y = gap;
@@ -61,6 +62,7 @@ private:
     MidiSettingsSection midi;
     OscSettingsSection osc;
     UiSettingsSection uiPrefs;
+    TempoSettingsSection tempoSec;
     ShowFilesSection files;
     ShortcutsSection keys;
     juce::Component content;

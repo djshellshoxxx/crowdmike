@@ -185,16 +185,17 @@ juce::String MidiSettingsSection::describeBinding(CrowdMikeAudioProcessor& p, co
                      : (b.type == MidiMsgType::NoteOnOff ? "Note " + juce::String(b.number) : juce::String("PitchBend"));
     src << (b.channel == 0 ? " (omni)" : " ch" + juce::String(b.channel));
     static const char* targets[] = { "", "Scene select", "Next scene", "Previous scene", "Record start", "Record stop", "Record toggle",
-                                     "Record marker", "Split file", "Clip trigger", "Clip stop", "Stop all clips", "Panic", "Macro" };
+                                     "Record marker", "Split file", "Clip trigger", "Clip stop", "Stop all clips", "Panic", "Macro",
+                                     "Tap tempo", "Resync downbeat", "Recall scope" };
     static const char* modes[] = { "absolute", "toggle", "momentary", "trigger" };
     juce::String dst;
     const int t = static_cast<int>(b.target);
     if (b.target == BindTarget::Param) {
         auto* param = p.getBank().parameterAt(b.targetIndex);
         dst = param != nullptr ? param->getName(40) : "param #" + juce::String(b.targetIndex);
-    } else if (t > 0 && t < 14) {
+    } else if (t > 0 && t < 17) {
         dst = targets[t];
-        if (b.target == BindTarget::SceneSelect || b.target == BindTarget::ClipTrigger || b.target == BindTarget::ClipStop || b.target == BindTarget::MacroValue)
+        if (b.target == BindTarget::SceneSelect || b.target == BindTarget::ClipTrigger || b.target == BindTarget::ClipStop || b.target == BindTarget::MacroValue || b.target == BindTarget::SceneScopeToggle)
             dst << " " << (b.targetIndex + 1);
     }
     return src + juce::String::fromUTF8(" \xe2\x86\x92 ") + dst + " [" + modes[juce::jlimit(0, 3, static_cast<int>(b.mode))] + "]";
@@ -321,7 +322,9 @@ juce::String OscSettingsSection::cheatSheet() {
            "/crowdmike/record/start|stop|toggle|marker|split\n"
            "/crowdmike/clip/4/trigger|stop      /crowdmike/clips/stop\n"
            "/crowdmike/macro/2 <0..1>           /crowdmike/panic [0|1]\n"
-           "/crowdmike/param/<param.id> <value> /crowdmike/paramnorm/<param.id> <0..1>";
+           "/crowdmike/param/<param.id> <value> /crowdmike/paramnorm/<param.id> <0..1>\n"
+           "/crowdmike/scene/scope <mask 1..255> /crowdmike/scene/scope/<name> [0|1]\n"
+           "/crowdmike/tempo/tap | resync       /crowdmike/tempo/bpm|source|quantise|nudge <v>";
 }
 
 void OscSettingsSection::refresh() {
@@ -363,7 +366,7 @@ void OscSettingsSection::updateStatus() {
     status.setColour(juce::Label::textColourId, lvl == StatusBadge::Level::Danger ? palette().danger : (lvl == StatusBadge::Level::Ok ? palette().ok : palette().textMuted));
 }
 
-int OscSettingsSection::preferredHeight(int) const { return kHeader + rowH() * 4 + juce::roundToInt(8 * 16 * scale()) + 20; }
+int OscSettingsSection::preferredHeight(int) const { return kHeader + rowH() * 4 + juce::roundToInt(10 * 16 * scale()) + 20; }
 
 void OscSettingsSection::resized() {
     auto r = getLocalBounds().reduced(10, 0);
@@ -443,6 +446,71 @@ void UiSettingsSection::resized() {
     auto l2 = r.removeFromTop(rh).reduced(0, 2);
     rampLabel.setBounds(l2.removeFromLeft(130));
     ramp.setBounds(l2.removeFromLeft(juce::jmin(320, l2.getWidth())));
+}
+
+// ================================================================= Tempo / Beat Sync
+struct TempoSettingsSection::Impl : private Tickable {
+    explicit Impl(TempoSettingsSection& o) : owner(o) {
+        using namespace params;
+        auto& p = o.proc;
+        const auto mk = [&](int id, const char* label) {
+            cells.add(new ParamCell(p, ParamBank::index(Mod::Tempo, 0, id), label));
+            o.addAndMakeVisible(cells.getLast());
+        };
+        mk(TempoP::Source, "Tempo source");
+        mk(TempoP::ManualBpm, "Manual BPM");
+        mk(TempoP::Nudge, "Nudge (BPM)");
+        mk(TempoP::BarBeats, "Beats per bar");
+        mk(TempoP::AutoSource, "Auto detect input");
+        mk(TempoP::Quantise, "Trigger quantise");
+    }
+    void tick() override {
+        const auto s = owner.proc.getTempo().snapshot();
+        static const char* names[] = { "Host", "Tap", "Manual", "MIDI clock", "Auto" };
+        const int src = juce::jlimit(0, 4, s.source);
+        juce::String t = juce::String(names[src]) + ": ";
+        t << (s.hasTempo ? juce::String(s.bpm, 2) + " BPM" : juce::String("no tempo"));
+        if (s.hasTempo) t << "  (confidence " << juce::roundToInt(s.confidence * 100.0f) << " %" << (s.lowConfidence ? ", low" : "") << ")";
+        if (owner.info.getText() != t) owner.info.setText(t, juce::dontSendNotification);
+    }
+    TempoSettingsSection& owner;
+    juce::OwnedArray<ParamCell> cells;
+};
+
+TempoSettingsSection::TempoSettingsSection(EditorContext& c) : SettingsSection(c, "Tempo / Beat Sync") {
+    impl = std::make_unique<Impl>(*this);
+    muted(info);
+    addAndMakeVisible(info);
+    resync.setTooltip("Declare the current moment to be beat 1 of a bar (free-running tempo sources)");
+    resync.onClick = [this] { proc.tempoResync(); };
+    addAndMakeVisible(resync);
+    impl->tick();
+}
+TempoSettingsSection::~TempoSettingsSection() = default;
+void TempoSettingsSection::refresh() { impl->tick(); }
+
+int TempoSettingsSection::preferredHeight(int width) const {
+    const int cols = width >= 640 ? 2 : 1;
+    const int rows = (6 + cols - 1) / cols;
+    return kHeader + rowH() * (rows + 2) + 14;
+}
+
+void TempoSettingsSection::resized() {
+    auto r = getLocalBounds().reduced(10, 0);
+    r.removeFromTop(kHeader);
+    const int rh = rowH();
+    const int cols = getWidth() >= 640 ? 2 : 1;
+    const int cw = r.getWidth() / cols;
+    for (int i = 0; i < impl->cells.size(); ++i) {
+        const int row = i / cols, col = i % cols;
+        impl->cells[i]->setBounds(r.getX() + col * cw, r.getY() + row * rh, cw - 8, rh);
+    }
+    const int rows = (impl->cells.size() + cols - 1) / cols;
+    r.removeFromTop(rows * rh);
+    auto line = r.removeFromTop(rh).reduced(0, 2);
+    resync.setBounds(line.removeFromLeft(160));
+    line.removeFromLeft(10);
+    info.setBounds(r.removeFromTop(rh));
 }
 
 // ================================================================= Show files

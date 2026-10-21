@@ -110,6 +110,24 @@ private:
     juce::Slider ramp;
 };
 
+// Beat Sync (docs/BEAT_SYNC_SPEC.md section 10): tempo source, manual BPM, nudge, bar length, auto input, trigger quantise,
+// tap + resync buttons and a live read-out. Every control is bound to a tempo.* parameter (so it is MIDI/OSC/macro bindable).
+class TempoSettingsSection final : public SettingsSection {
+public:
+    explicit TempoSettingsSection(EditorContext&);
+    ~TempoSettingsSection() override;
+    int preferredHeight(int) const override;
+    void resized() override;
+    void refresh() override;
+    juce::TextButton& resyncButton() { return resync; }
+    juce::Label& readout() { return info; }
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+    juce::Label info;
+    juce::TextButton resync { "Resync downbeat" };
+};
+
 class ShowFilesSection final : public SettingsSection {
 public:
     explicit ShowFilesSection(EditorContext&);
