@@ -30,6 +30,7 @@ struct HubActions {
     std::function<void(int markerType)> marker;
     std::function<void(int)> clipTrigger, clipStop;
     std::function<void()> stopAllClips;
+    std::function<void()> reportExport;
     std::function<void()> tempoTap, tempoResync;    // Beat Sync (TempoHub owned by the processor)
 };
 

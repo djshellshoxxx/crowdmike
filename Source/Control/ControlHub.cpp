@@ -152,6 +152,7 @@ void ControlHub::applyBinding(const ControlBinding& b, const MidiEvent& e) {
                 case BindTarget::Panic: a.kind = OscAction::Kind::Panic; a.hasValue = true; a.value = 1.0f; break;
                 case BindTarget::TempoTap: a.kind = OscAction::Kind::TempoTap; break;
                 case BindTarget::TempoResync: a.kind = OscAction::Kind::TempoResync; break;
+                case BindTarget::ReportExport: a.kind = OscAction::Kind::ReportExport; break;
                 case BindTarget::SceneScopeToggle: a.kind = OscAction::Kind::SceneScopeBit; break;   // no value => toggle
                 default: return;
             }
@@ -186,6 +187,7 @@ void ControlHub::execute(const OscAction& a) {
         }
         case K::TempoTap: if (actions.tempoTap) actions.tempoTap(); break;
         case K::TempoResync: if (actions.tempoResync) actions.tempoResync(); break;
+        case K::ReportExport: if (actions.reportExport) actions.reportExport(); break;
         case K::RecordStart: if (actions.recordStart) actions.recordStart(); break;
         case K::RecordStop: if (actions.recordStop) actions.recordStop(); break;
         case K::RecordToggle: if (actions.recordToggle) actions.recordToggle(); break;

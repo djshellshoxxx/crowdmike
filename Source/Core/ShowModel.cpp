@@ -199,7 +199,7 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         b.type = static_cast<MidiMsgType>(juce::jlimit(0, 2, static_cast<int>(bt["type"])));
         b.channel = juce::jlimit(0, 16, static_cast<int>(bt["channel"]));
         b.number = juce::jlimit(0, 127, static_cast<int>(bt["number"]));
-        b.target = static_cast<BindTarget>(juce::jlimit(0, static_cast<int>(BindTarget::SceneScopeToggle), static_cast<int>(bt["target"])));
+        b.target = static_cast<BindTarget>(juce::jlimit(0, static_cast<int>(BindTarget::ReportExport), static_cast<int>(bt["target"])));
         b.targetIndex = bt["targetIndex"];
         if (b.target == BindTarget::Param) {
             b.targetIndex = ParamBank::indexForId(bt["targetParam"].toString());   // IDs are the stable key, not indices
@@ -270,6 +270,7 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         }
         if (u.hasProperty("recallScope"))
             ui.recallScope = static_cast<unsigned>(static_cast<int>(u["recallScope"])) & 0xFFu;
+        if (ui.recallScope == 0) ui.recallScope = 0xFFu;   // an empty scope is never accepted (CONTROL_SPEC)
     }
     if (auto rp = t.getChildWithName("Report"); rp.isValid()) {   // absent in states saved before the Show Report feature
         report.enabled = rp.hasProperty("enabled") ? static_cast<bool>(rp["enabled"]) : true;
