@@ -85,7 +85,7 @@ Support MIDI learn for:
 - recorder controls
 - playback clips
 - panic
-- tap tempo, resync downbeat and recall-scope toggles (binding targets `TempoTap`, `TempoResync`, `SceneScopeToggle`)
+- tap tempo, resync downbeat and recall-scope toggles (binding targets `TempoTap`, `TempoResync`, `SceneScopeToggle`; `ReportExport` and OSC `/crowdmike/report/export` write the show report now)
 
 MIDI realtime clock (0xF8/0xFA/0xFB/0xFC) is consumed by the tempo hub when `tempo.source` is MIDI Clock
 (BEAT_SYNC_SPEC.md section 5).

@@ -92,8 +92,12 @@ private:
     void writeScope() {
         unsigned scope = 0;
         for (int i = 0; i < scopes.size(); ++i) if (scopes[i]->getToggleState()) scope |= kScopes[i].bit;
+        if (scope == 0) {   // CONTROL_SPEC: an empty scope is never accepted; put the last non-empty selection back
+            ctx.say("Recall scope cannot be empty: keep at least one category selected", true);
+            refresh();
+            return;
+        }
         proc.getShow().ui.recallScope = scope;
-        if (scope == 0) ctx.say("Recall scope is empty: recalls will only change the current-scene marker", true);
     }
     void unlockRow(int row) {
         auto& l = proc.getShow().lockedParams;

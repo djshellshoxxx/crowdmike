@@ -512,13 +512,13 @@ bool PlaybackEngine::trigger(int slot, int offset) {
     return commands.push(c);
 }
 
-bool PlaybackEngine::triggerFromAudioThread(int slot, int offset) noexcept {
+bool PlaybackEngine::triggerFromAudioThread(int slot, int offset, bool alreadyQuantised) noexcept {
     if ((unsigned) slot >= (unsigned) kMaxClips) return false;
     Command c;
     c.type = Command::Trigger;
     c.slot = slot;
     c.offset = std::max(0, offset);
-    c.immediate = true;   // the engine already quantised this trigger; do not quantise twice
+    c.immediate = alreadyQuantised;   // true: the engine grid already placed it, do not quantise twice; false: global quantiser passed through, the clip may still use its own sync (9.2)
     return audioCommands.push(c);
 }
 

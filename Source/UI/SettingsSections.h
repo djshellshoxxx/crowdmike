@@ -67,6 +67,7 @@ private:
     juce::OwnedArray<BindingRow> bindingRows;
     StatusBadge learn;
     juce::TextButton cancelLearn { "Cancel learn" };
+    juce::TextButton learnAction { "Learn action..." };
     juce::String bindingSignature;
     int tickCount = 0;
 };

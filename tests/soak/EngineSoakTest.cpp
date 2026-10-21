@@ -58,6 +58,11 @@ void wiggle(CrowdMikeAudioProcessor& p, double t, int inputs) {
     setParam(p, "master.width", (float) (1.0 + 0.5 * std::sin(t * 0.05)));
     if (k % 20 == 0) setParam(p, "fx.echo.trigger", 1.0f);
     if (k % 20 == 1) setParam(p, "fx.echo.trigger", 0.0f);
+    setParam(p, "fx.reverb.freeze", (k / 7) % 3 == 0 ? 1.0f : 0.0f);
+    setParam(p, "fx.reverb.decay", (float) (2.5 + 2.0 * std::sin(t * 0.09)));
+    if (k % 40 == 5) setParam(p, "fx.reverb.tailKill", 1.0f);
+    if (k % 40 == 6) setParam(p, "fx.reverb.tailKill", 0.0f);
+    if (k % 30 == 3) p.tempoTap();
 }
 
 void maxChannelStress(double sr) {

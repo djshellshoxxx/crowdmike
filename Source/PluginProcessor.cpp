@@ -31,13 +31,19 @@ CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
     hub.actions.clipTrigger = [this](int slot) { triggerClip(slot); };
     hub.actions.tempoTap = [this] { tempoTap(); };
     hub.actions.tempoResync = [this] { tempoResync(); };
+    hub.actions.reportExport = [this] { reportService.exportReport(); };
     hub.actions.clipStop = [this](int slot) { playback.stop(slot); };
     hub.actions.stopAllClips = [this] { playback.stopAll(); };
     reportService.setAppVersion(kAppVersion);
     reportService.setSceneNameProvider([this] { return getCurrentSceneName(); });
     reportService.setFeedbackAnalysisControl([this](bool on) { setFeedbackAnalysisActive(on); });
     reportService.setDeviceStatusProvider([this] { return hostServices != nullptr ? hostServices->getDeviceStatus() : DeviceStatus {}; });
-    scenes.onRecalled = [this] { reportService.noteSceneRecall(getCurrentSceneName()); };
+    scenes.onRecalled = [this] {
+        // Recall may have replaced the macro assignments (ScopeMacros); the audio thread only sees them via publishMacros,
+        // and MIDI/OSC/host-button recalls never pass through the GUI's showModelChanged().
+        bank.publishMacros(show.macros);
+        reportService.noteSceneRecall(getCurrentSceneName());
+    };
     if (juce::MessageManager::getInstanceWithoutCreating() != nullptr) {
         hub.startPolling();
         startTimerHz(20);

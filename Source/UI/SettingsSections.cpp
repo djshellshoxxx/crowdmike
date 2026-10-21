@@ -174,8 +174,27 @@ MidiSettingsSection::MidiSettingsSection(EditorContext& c) : SettingsSection(c, 
     emptyNote.setText("No bindings. Right-click any control and choose MIDI Learn.", juce::dontSendNotification);
     cancelLearn.setTooltip("Stop waiting for a MIDI message (MIDI learn)");
     cancelLearn.onClick = [this] { proc.getHub().cancelLearn(); tick(); };
+    learnAction.setTooltip("Pick a transport, scene, recording or report action, then move a MIDI control to bind it");
+    learnAction.onClick = [this] {
+        struct Item { const char* name; BindTarget target; BindMode mode; };
+        static const Item items[] = {
+            { "Record start", BindTarget::RecordStart, BindMode::Trigger }, { "Record stop", BindTarget::RecordStop, BindMode::Trigger },
+            { "Record toggle", BindTarget::RecordToggle, BindMode::Trigger }, { "Record marker", BindTarget::RecordMarker, BindMode::Trigger },
+            { "Split file", BindTarget::SplitFile, BindMode::Trigger }, { "Next scene", BindTarget::SceneNext, BindMode::Trigger },
+            { "Previous scene", BindTarget::ScenePrev, BindMode::Trigger }, { "Stop all clips", BindTarget::StopAllClips, BindMode::Trigger },
+            { "Tap tempo", BindTarget::TempoTap, BindMode::Trigger }, { "Resync downbeat", BindTarget::TempoResync, BindMode::Trigger },
+            { "Export show report", BindTarget::ReportExport, BindMode::Trigger } };
+        juce::PopupMenu m;
+        for (int i = 0; i < static_cast<int>(std::size(items)); ++i) m.addItem(i + 1, items[i].name);
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&learnAction), [this](int r) {
+            if (r <= 0) return;
+            proc.getHub().startLearn({ items[r - 1].target, items[r - 1].target == BindTarget::RecordMarker ? 5 : 0, items[r - 1].mode });   // 5 = plain "Marker"
+            ctx.say(juce::String("MIDI learn: move a control for ") + items[r - 1].name);
+            tick();
+        });
+    };
     learn.setTitle("MIDI learn state");
-    for (juce::Component* comp : std::initializer_list<juce::Component*> { &inputsTitle, &inputsNote, &bindingsTitle, &lastMidi, &emptyNote, &learn, &cancelLearn })
+    for (juce::Component* comp : std::initializer_list<juce::Component*> { &inputsTitle, &inputsNote, &bindingsTitle, &lastMidi, &emptyNote, &learn, &cancelLearn, &learnAction })
         addAndMakeVisible(comp);
     refresh();
 }
@@ -186,14 +205,14 @@ juce::String MidiSettingsSection::describeBinding(CrowdMikeAudioProcessor& p, co
     src << (b.channel == 0 ? " (omni)" : " ch" + juce::String(b.channel));
     static const char* targets[] = { "", "Scene select", "Next scene", "Previous scene", "Record start", "Record stop", "Record toggle",
                                      "Record marker", "Split file", "Clip trigger", "Clip stop", "Stop all clips", "Panic", "Macro",
-                                     "Tap tempo", "Resync downbeat", "Recall scope" };
+                                     "Tap tempo", "Resync downbeat", "Recall scope", "Export show report" };
     static const char* modes[] = { "absolute", "toggle", "momentary", "trigger" };
     juce::String dst;
     const int t = static_cast<int>(b.target);
     if (b.target == BindTarget::Param) {
         auto* param = p.getBank().parameterAt(b.targetIndex);
         dst = param != nullptr ? param->getName(40) : "param #" + juce::String(b.targetIndex);
-    } else if (t > 0 && t < 17) {
+    } else if (t > 0 && t < 18) {
         dst = targets[t];
         if (b.target == BindTarget::SceneSelect || b.target == BindTarget::ClipTrigger || b.target == BindTarget::ClipStop || b.target == BindTarget::MacroValue || b.target == BindTarget::SceneScopeToggle)
             dst << " " << (b.targetIndex + 1);
@@ -270,6 +289,8 @@ void MidiSettingsSection::resized() {
     auto lr = r.removeFromTop(rh).reduced(0, 2);
     cancelLearn.setBounds(lr.removeFromRight(120));
     lr.removeFromRight(6);
+    learnAction.setBounds(lr.removeFromRight(130));
+    lr.removeFromRight(6);
     learn.setBounds(lr.removeFromRight(juce::jmin(260, lr.getWidth() / 2)));
     lastMidi.setBounds(lr);
     inputsTitle.setBounds(r.removeFromTop(rh));
@@ -319,7 +340,7 @@ juce::String OscSettingsSection::cheatSheet() {
            "/crowdmike/group/2/trim <dB>        /crowdmike/output/3/delay <ms>\n"
            "/crowdmike/fx/reverse/trigger       /crowdmike/fx/delay/feedback <0..0.95>\n"
            "/crowdmike/scene/3/select           /crowdmike/scene/next | prev\n"
-           "/crowdmike/record/start|stop|toggle|marker|split\n"
+           "/crowdmike/record/start|stop|toggle|marker|split  /crowdmike/report/export\n"
            "/crowdmike/clip/4/trigger|stop      /crowdmike/clips/stop\n"
            "/crowdmike/macro/2 <0..1>           /crowdmike/panic [0|1]\n"
            "/crowdmike/param/<param.id> <value> /crowdmike/paramnorm/<param.id> <0..1>\n"

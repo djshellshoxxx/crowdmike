@@ -49,7 +49,7 @@ std::int64_t residentBytes() {
 void enableEverything(CrowdMikeAudioProcessor& p, int numInputs) {
     for (int i = 1; i <= numInputs && i <= 16; ++i) {
         const juce::String in = "input" + juce::String(i) + ".";
-        for (int fx = 1; fx <= 5; ++fx) setParam(p, in + "fxSend" + juce::String(fx), 0.0f);
+        for (int fx = 1; fx <= 7; ++fx) setParam(p, in + "fxSend" + juce::String(fx), 0.0f);
         setParam(p, in + "highPassEnabled", 1.0f);
         setParam(p, in + "lowPassEnabled", 1.0f);
         setParam(p, in + "notchOn", 1.0f);
@@ -57,13 +57,20 @@ void enableEverything(CrowdMikeAudioProcessor& p, int numInputs) {
         setParam(p, in + "gainRiding", 1.0f);
     }
     for (int g = 1; g <= 8; ++g)
-        for (int fx = 1; fx <= 5; ++fx) setParam(p, "group" + juce::String(g) + ".fxSend" + juce::String(fx), -6.0f);
+        for (int fx = 1; fx <= 7; ++fx) setParam(p, "group" + juce::String(g) + ".fxSend" + juce::String(fx), -6.0f);
     for (const char* m : { "fx.delay.", "fx.echo.", "fx.tape.", "fx.reverse.", "fx.noise." }) setParam(p, juce::String(m) + "bypass", 0.0f);
     setParam(p, "fx.delay.mode", 2.0f);          // multi-tap
     setParam(p, "fx.reverse.trigMode", 1.0f);    // repeating, so the reverse buffer keeps cycling
     setParam(p, "master.widthOn", 1.0f);
     setParam(p, "master.width", 1.5f);
     setParam(p, "master.decorr", 0.5f);
+    // Modules added after the original five: reverb + multiplier returns, performer ducker, tempo grid with quantiser.
+    setParam(p, "fx.reverb.on", 1.0f);
+    setParam(p, "fx.multi.on", 1.0f);
+    setParam(p, "duckOn", 1.0f);
+    setParam(p, "tempo.source", 2.0f);      // Manual
+    setParam(p, "tempo.quantise", 1.0f);    // 1/4
+    setParam(p, "fx.reverb.preSync", 1.0f);
 }
 } // namespace soak
 

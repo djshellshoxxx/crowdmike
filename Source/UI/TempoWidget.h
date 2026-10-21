@@ -25,7 +25,8 @@ public:
 private:
     CrowdMikeAudioProcessor& proc;
     ParamChoice source, quantise;
-    MomentaryButton tapBtn;
+    juce::TextButton tapBtn;   // taps go straight to TempoHub on mouse-down (the tempo.tap parameter is polled at 20 Hz: +-50 ms jitter, short clicks lost)
+    bool tapWasDown = false;
     juce::Label bpmLabel;
     juce::Rectangle<int> ledArea, confArea;
     bool ledOn = false, ledDownbeat = false, lowConf = false;

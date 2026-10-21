@@ -122,7 +122,7 @@ public:
     bool trigger(int slot, int startOffsetSamples = 0);
     /** AUDIO THREAD ONLY (the thread that calls process(), before process() in the same block): starts the clip
         `startOffsetSamples` into that block. Lock-free; used by the engine's beat-quantised clip triggers. */
-    bool triggerFromAudioThread(int slot, int startOffsetSamples) noexcept;
+    bool triggerFromAudioThread(int slot, int startOffsetSamples, bool alreadyQuantised = true) noexcept;
     /** Like trigger() but never quantised. */
     bool triggerNow(int slot, int startOffsetSamples = 0);
     bool stop(int slot);

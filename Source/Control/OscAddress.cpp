@@ -119,6 +119,11 @@ OscAction resolveOsc(const juce::String& address, const std::vector<float>& args
         else act.error = "bad record address";
         return act;
     }
+    if (p1 == "report" && parts.size() == 3 && parts[2] == "export") {
+        if (!args.empty() && args[0] <= 0.0f) return act;   // button release
+        act.kind = OscAction::Kind::ReportExport;
+        return act;
+    }
     if (p1 == "clips" && parts.size() == 3 && parts[2] == "stop") { act.kind = OscAction::Kind::StopAllClips; return act; }
     if (p1 == "clip" && parts.size() == 4) {
         int idx = 0;

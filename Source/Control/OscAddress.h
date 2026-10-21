@@ -16,7 +16,7 @@ namespace crowdmike {
 struct OscAction {
     enum class Kind { None, SetParam, SetParamNorm, Pulse, SceneSelect, SceneNext, ScenePrev, RecordStart, RecordStop,
                       RecordToggle, RecordMarker, RecordSplit, ClipTrigger, ClipStop, StopAllClips, Panic, Macro,
-                      TempoTap, TempoResync, SceneScopeSet, SceneScopeBit } kind = Kind::None;
+                      TempoTap, TempoResync, SceneScopeSet, SceneScopeBit, ReportExport } kind = Kind::None;
     int index = -1;          // global param index / scene / clip / macro / scope mask or bit
     bool hasValue = false;
     float value = 0.0f;

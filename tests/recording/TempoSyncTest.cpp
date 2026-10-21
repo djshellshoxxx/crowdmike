@@ -143,3 +143,37 @@ CM_TEST(TempoSync_LoopRestartsEveryNBeats) {
         CM_EXPECT_NEAR((double) (restarts[k] - restarts[k - 1]), 24000.0, 40.0);
     for (float v : all) CM_EXPECT(std::isfinite(v));
 }
+
+// The engine's global trigger quantiser hands clips over via triggerFromAudioThread. When it fires on its own grid the
+// clip must not wait again; when it passes through (stopped transport) the clip keeps its own 9.2 sync.
+CM_TEST(TempoSync_EngineHandOffDoesNotDoubleQuantiseButPassthroughKeepsClipSync) {
+    rectest::TempDir tmp("ts");
+    auto f = dcClip(tmp.dir, 48000 * 4);
+    auto run = [&](bool alreadyQuantised) {
+        PE pe;
+        pe.prepare(kSr, 512);
+        CM_EXPECT(pe.loadClip(0, f) && pe.waitForLoads(10000));
+        PE::ClipSettings s;
+        s.tempoSync = true;
+        s.syncQuantise = 2;   // 1 beat
+        pe.setSettings(0, s);
+        std::vector<float> bl(512), br(512);
+        float* dl[PE::kNumDestinations] {};
+        float* dr[PE::kNumDestinations] {};
+        long long frame = 0;
+        for (int b = 0; b < 200; ++b) {
+            if (b == 2) pe.triggerFromAudioThread(0, 0, alreadyQuantised);
+            pe.setTempo({ 120.0, 0.3 + (double) frame * 120.0 / (60.0 * kSr), true, false });   // transport stopped
+            std::fill(bl.begin(), bl.end(), 0.0f); std::fill(br.begin(), br.end(), 0.0f);
+            dl[0] = bl.data(); dr[0] = br.data();
+            pe.process(dl, dr, 512, false);
+            for (int i = 0; i < 512; ++i) if (std::abs(bl[(size_t) i]) > 1e-6f) return frame + i;
+            frame += 512;
+        }
+        return -1ll;
+    };
+    const long long fired = run(true);
+    CM_EXPECT(fired >= 2 * 512 && fired < 2 * 512 + 4);
+    const long long waited = run(false);
+    CM_EXPECT(waited > 2 * 512 + 4 && waited <= 2 * 512 + 24000 + 512);
+}
