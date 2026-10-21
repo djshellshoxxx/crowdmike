@@ -301,3 +301,8 @@ No automatic notch insertion in the first implementation unless enabled explicit
 - right-click learn/assign menu
 - optional tooltip help
 - undo/redo for parameter and routing changes
+
+## 13. Usability additions
+- Live page: Ducker strip under the ribbon (DUCK toggle, key, target, exclude key, threshold/depth/attack/hold/release, key meter with threshold marker, GR meter). Group strips show limiter gain reduction; the master section shows FX send meters beside the returns.
+- Inputs page: Duck key select in the top bar, "KEY" marker on the key row, and a non-modal Line Check panel (Start/Stop, Apply all, per-input Apply, Flip polarity, Undo, Quick start).
+- Groups page: per-group limiter GR meter and FX send bus meters.

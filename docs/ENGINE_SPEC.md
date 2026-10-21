@@ -199,3 +199,8 @@ Audio processor owns authoritative parameter/state model.
 GUI is a view/controller only.
 Recorder/playback transport state uses thread-safe commands.
 Routing changes are built off-thread and atomically swapped at safe block boundaries.
+
+## 13. Performer Ducker, Line Check probe and extra meters (additive)
+- Ducker runs after the FX send/return stage and before the master sum and bus matrix, on copies of the group and FX-return buses. Key is raw input times the input trim. Recorder Raw, Proc, Group and Fx taps are never ducked; Master and output taps see the ducked signal. Bypass disables it; panic still mutes at the output stage. Details: `docs/DUCKER_SPEC.md`.
+- Line Check probe taps raw (pre-trim) input after soundcheck playback substitution; inert unless armed. Details: `docs/LINE_CHECK_SPEC.md`.
+- `EngineMeters` additions (appended): `groupLimGrDb[]`, `fxSendPeak[]`, `duckGrDb`, `duckKeyPeak`, `duckOpen`.
