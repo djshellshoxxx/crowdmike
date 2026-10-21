@@ -184,6 +184,17 @@ public:
             underrunUntilMs = juce::Time::getMillisecondCounter() + 6000;
             ctx.say("Playback stream underrun: the disk could not keep up (silence inserted)", true);
         }
+        // A streamed file that stops being readable mid-play, or more streams than ring buffers, also ends in silence.
+        if (streamStats.readErrors != lastReadErrors) {
+            lastReadErrors = streamStats.readErrors;
+            underrunUntilMs = juce::Time::getMillisecondCounter() + 6000;
+            ctx.say("Playback stream read error: a streamed file could not be read (silence inserted)", true);
+        }
+        if (streamStats.starvedAcquires != lastStarved) {
+            lastStarved = streamStats.starvedAcquires;
+            underrunUntilMs = juce::Time::getMillisecondCounter() + 6000;
+            ctx.say("Playback stream pool exhausted: too many streamed clips playing at once", true);
+        }
         const bool underrunNow = juce::Time::getMillisecondCounter() < underrunUntilMs;
         if (underrunNow && inf.streaming) { text << "  UNDERRUN"; info.setText(text, juce::dontSendNotification); }
         info.setColour(juce::Label::textColourId, missing || inf.error.isNotEmpty() || (underrunNow && inf.streaming) ? palette().danger : palette().textMuted);
@@ -269,6 +280,7 @@ private:
     bool capturingKey = false, loadedShown = false, missing = false;
     juce::uint64 lastUnderruns = 0;
     juce::uint32 underrunUntilMs = 0;
+    juce::uint64 lastReadErrors = 0, lastStarved = 0;
     juce::Label title, info, assignInfo, lMode, lGain, lFadeIn, lFadeOut, lAssign, lSync;
     juce::ComboBox syncGrid;
     juce::Slider syncBeats;

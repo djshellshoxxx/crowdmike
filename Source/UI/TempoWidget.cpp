@@ -9,7 +9,13 @@ TempoWidget::TempoWidget(EditorContext& c)
     : proc(c.proc),
       source(c.proc, ParamBank::index(Mod::Tempo, 0, TempoP::Source)),
       quantise(c.proc, ParamBank::index(Mod::Tempo, 0, TempoP::Quantise)),
-      tapBtn(c.proc, ParamBank::index(Mod::Tempo, 0, TempoP::Tap), "TAP") {
+      tapBtn("TAP") {
+    tapBtn.setTitle("Tap tempo");
+    tapBtn.onStateChange = [this] {
+        const bool down = tapBtn.isDown();
+        if (down && !tapWasDown) proc.tempoTap();
+        tapWasDown = down;
+    };
     source.setComponentID("tempo.source");
     source.setTooltip("Tempo source: Host playhead, Tap, Manual, MIDI clock or Auto-detect from audio");
     quantise.setComponentID("tempo.quantise");
