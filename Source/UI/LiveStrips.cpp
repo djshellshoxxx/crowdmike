@@ -338,7 +338,7 @@ LiveMasterSection::LiveMasterSection(EditorContext& c, const LiveFlag& f) : ctx(
     masterR.setTooltip("Master right (click clears clip)");
     addAndMakeVisible(masterL);
     addAndMakeVisible(masterR);
-    static const char* fxNames[kNumFx] = { "Delay", "Echo", "Tape", "Reverse", "Noise" };
+    static const char* fxNames[kNumFx] = { "Delay", "Echo", "Tape", "Reverse", "Noise", "Reverb", "Multi" };
     for (int i = 0; i < kNumFx; ++i) {
         auto* mtr = fxMeters.add(new LevelMeter(LevelMeter::Orientation::Horizontal));
         mtr->source = [this, &m, i] { return live.on ? m.fxPeak[static_cast<size_t>(i)].getAndReset() : 0.0f; };

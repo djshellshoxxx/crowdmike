@@ -3,7 +3,7 @@
 // Three matrices (ROUTING_SPEC section 1-2):
 //   direct : processed input channel -> output channel      (the first-release "routing matrix", frozen API)
 //   assign : processed input channel -> crowd group         (send level)
-//   bus    : group L/R, FX return L/R, playback L/R, master L/R -> output channel
+//   bus    : group L/R, FX return L/R, playback L/R, master L/R -> output channel (row order: Limits.h, persisted layout)
 // Writers use set*(); the engine polls revision() once per block and re-targets its smoothed copies.
 #include <juce_data_structures/juce_data_structures.h>
 #include <array>
@@ -42,7 +42,8 @@ public:
     bool fromValueTree(const juce::ValueTree&);
 
     static int busRowForGroup(int group, int channel) noexcept { return kBusSrcGroupBase + group * 2 + channel; }
-    static int busRowForFx(int fx, int channel) noexcept { return kBusSrcFxBase + fx * 2 + channel; }
+    // FX slots >= kNumLegacyFx map to the appended rows (Limits.h); slots 0..4 keep their first-release rows.
+    static int busRowForFx(int fx, int channel) noexcept { return busRowForFxReturn(fx, channel); }
     static int busRowForPlayback(int channel) noexcept { return kBusSrcPlayback + channel; }
     static int busRowForMaster(int channel) noexcept { return kBusSrcMaster + channel; }
     static juce::String busRowName(int row);

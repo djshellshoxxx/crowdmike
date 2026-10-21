@@ -48,7 +48,15 @@ juce::AudioProcessorParameter* CrowdMikeAudioProcessor::getBypassParameter() con
     return parameters.getParameter(ParamBank::paramId(Mod::Global, 0, params::GlobalP::Bypass));
 }
 
-double CrowdMikeAudioProcessor::getTailLengthSeconds() const { return 4.0; }
+double CrowdMikeAudioProcessor::getTailLengthSeconds() const
+{
+    // The delays/tape need up to ~4 s; an enabled Stadium Reverb reports its RT60 (+ pre-delay), capped at its 20 s maximum.
+    double tail = 4.0;
+    const auto raw = [this](Mod m, int e) { return static_cast<double>(bank.rawAt(ParamBank::index(m, 0, e))); };
+    if (raw(Mod::FxReverb, params::ReverbP::On) > 0.5)
+        tail = juce::jmax(tail, raw(Mod::FxReverb, params::ReverbP::Decay) + raw(Mod::FxReverb, params::ReverbP::PreDelay) * 0.001);
+    return tail;
+}
 
 void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {

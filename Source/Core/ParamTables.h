@@ -133,7 +133,9 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Fx3, F("fxSend3", "Tape Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx4, F("fxSend4", "Reverse Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx5, F("fxSend5", "Noise Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
-    X(FxPre, B("fxSendPre", "FX Sends Pre-fader"))
+    X(FxPre, B("fxSendPre", "FX Sends Pre-fader")) \
+    X(Fx6, F("fxSend6", "Reverb Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
+    X(Fx7, F("fxSend7", "Multiplier Send", -80.f, 6.f, -80.f, "dB", 0.1f))
 
 // ---------------------------------------------------------------- Groups (8 instances, "group<n>.")
 #define CM_GROUP_PARAMS(X) \
@@ -158,7 +160,9 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Fx2, F("fxSend2", "Echo Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx3, F("fxSend3", "Tape Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
     X(Fx4, F("fxSend4", "Reverse Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
-    X(Fx5, F("fxSend5", "Noise Send", -80.f, 6.f, -80.f, "dB", 0.1f))
+    X(Fx5, F("fxSend5", "Noise Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
+    X(Fx6, F("fxSend6", "Reverb Send", -80.f, 6.f, -80.f, "dB", 0.1f)) \
+    X(Fx7, F("fxSend7", "Multiplier Send", -80.f, 6.f, -80.f, "dB", 0.1f))
 
 // ---------------------------------------------------------------- Output channels (16 instances, "out<n>.")
 #define CM_OUTPUT_PARAMS(X) \
@@ -288,6 +292,38 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Seed, F("seed", "Noise Seed", 1.f, 9999.f, 1.f, "", 1.f)) \
     X(Return, F("returnDb", "Noise Return", -80.f, 6.f, -12.f, "dB", 0.1f))
 
+// Stadium Reverb (FX slot 6). docs/EFFECTS_SPEC.md section 19.
+#define CM_FX_REVERB(X) \
+    X(On, B("on", "Reverb On")) \
+    X(Size, F("size", "Reverb Size", 0.f, 1.f, 0.6f)) \
+    X(Decay, F("decay", "Reverb Decay (RT60)", 0.2f, 20.f, 2.5f, "s", 0.01f, 2.f)) \
+    X(PreDelay, F("preDelayMs", "Reverb Pre-delay", 0.f, 250.f, 20.f, "ms", 0.1f, 40.f)) \
+    X(PreSync, B("preSync", "Reverb Pre-delay Tempo Sync")) \
+    X(PreDiv, C("preDiv", "Reverb Pre-delay Division", CM_DIVISIONS, 2)) \
+    X(HfDamp, F("hfDampHz", "Reverb HF Damping", 1000.f, 20000.f, 8000.f, "Hz", 1.f, 6000.f)) \
+    X(LowCut, F("lowCutHz", "Reverb Low Cut", 20.f, 1000.f, 120.f, "Hz", 1.f, 150.f)) \
+    X(Diffusion, F("diffusion", "Reverb Diffusion", 0.f, 1.f, 0.7f)) \
+    X(ModDepth, F("modDepth", "Reverb Mod Depth", 0.f, 1.f, 0.3f)) \
+    X(ModRate, F("modRate", "Reverb Mod Rate", 0.05f, 5.f, 0.6f, "Hz", 0.01f, 0.5f)) \
+    X(Width, F("width", "Reverb Width", 0.f, 1.f, 1.f)) \
+    X(Wet, F("wetDb", "Reverb Wet Level", -60.f, 12.f, -3.f, "dB", 0.1f)) \
+    X(Freeze, B("freeze", "Reverb Freeze")) \
+    X(TailKill, B("tailKill", "Reverb Tail Kill")) \
+    X(Return, F("returnDb", "Reverb Return", -80.f, 6.f, 0.f, "dB", 0.1f))
+
+// Crowd Multiplier (FX slot 7). docs/EFFECTS_SPEC.md section 20.
+#define CM_FX_MULTI(X) \
+    X(On, B("on", "Multiplier On")) \
+    X(Voices, F("voices", "Multiplier Voices", 2.f, 16.f, 8.f, "", 1.f)) \
+    X(Depth, F("depthMs", "Multiplier Depth", 0.f, 20.f, 4.f, "ms", 0.1f, 5.f)) \
+    X(Rate, F("rateHz", "Multiplier Rate", 0.05f, 8.f, 0.8f, "Hz", 0.01f, 0.8f)) \
+    X(Detune, F("detuneCents", "Multiplier Detune", 0.f, 50.f, 6.f, "cents", 0.1f, 10.f)) \
+    X(Scatter, F("scatter", "Multiplier Scatter", 0.f, 1.f, 0.7f)) \
+    X(Tone, F("tone", "Multiplier Tone", 0.f, 1.f, 0.5f)) \
+    X(Seed, F("seed", "Multiplier Seed", 1.f, 9999.f, 1.f, "", 1.f)) \
+    X(Level, F("levelDb", "Multiplier Level", -60.f, 12.f, 0.f, "dB", 0.1f)) \
+    X(Return, F("returnDb", "Multiplier Return", -80.f, 6.f, 0.f, "dB", 0.1f))
+
 #define CM_MACRO_PARAMS(X) X(Value, F("", "Macro", 0.f, 1.f, 0.f))
 
 // ---------------------------------------------------------------- generate enums + tables
@@ -308,6 +344,13 @@ CM_DEFINE_MODULE(EchoP, CM_FX_ECHO)
 CM_DEFINE_MODULE(TapeP, CM_FX_TAPE)
 CM_DEFINE_MODULE(ReverseP, CM_FX_REVERSE)
 CM_DEFINE_MODULE(NoiseP, CM_FX_NOISE)
+CM_DEFINE_MODULE(ReverbP, CM_FX_REVERB)
+CM_DEFINE_MODULE(MultiP, CM_FX_MULTI)
+
+// Per-FX send parameter of an input strip / group. Sends 1..5 are contiguous at Fx1; the sends added later sit at the END of the
+// tables (Input: after FxPre) to keep every earlier enum position and saved ID untouched, so never compute Fx1 + slot directly.
+constexpr int inputSendParam(int fx) { return fx < 5 ? InputP::Fx1 + fx : InputP::Fx6 + (fx - 5); }
+constexpr int groupSendParam(int fx) { return fx < 5 ? GroupP::Fx1 + fx : GroupP::Fx6 + (fx - 5); }
 
 // Contiguous sub-blocks inside the larger tables (so DSP can be handed `base + offset`).
 // Verified against the tables in tests (ParamTablesTest).

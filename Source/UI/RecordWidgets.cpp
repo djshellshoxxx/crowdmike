@@ -9,7 +9,7 @@ juce::String tapDisplayName(const ShowModel& show, int id) {
     if (id < Proc) return "Raw: " + show.inputDisplayName(id - Raw);
     if (id < Group) return "Processed: " + show.inputDisplayName(id - Proc);
     if (id < Fx) return "Group: " + show.groupDisplayName(id - Group);
-    if (id < Master) return "FX: " + defaultName(id);
+    if (id < Master || id >= FxExtra) return "FX: " + defaultName(id);
     if (id == Master) return "Master";
     if (id == Playback) return "Playback bus";
     const int pair = id - OutPair;

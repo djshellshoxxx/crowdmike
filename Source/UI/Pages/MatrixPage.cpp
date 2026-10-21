@@ -19,7 +19,15 @@ using namespace crowdmike::params;
 namespace RV = RouteValidator;
 
 namespace {
-const char* const kFxNames[kNumFx] = { "Delay", "Echo", "Tape", "Reverse", "Noise" };
+const char* const kFxNames[kNumFx] = { "Delay", "Echo", "Tape", "Reverse", "Noise", "Reverb", "Multiplier" };
+// Display order of the bus-source rows of grid B -> persisted bus row (Limits.h). The FX returns appended to the persisted layout
+// (rows 30..33) are shown with the other FX returns; the stored row indices are unaffected.
+int displayBusRow(int d) {
+    constexpr int extra = kBusSrcCount - kBusSrcFxExtraBase;
+    if (d < kBusSrcPlayback) return d;
+    if (d < kBusSrcPlayback + extra) return kBusSrcFxExtraBase + (d - kBusSrcPlayback);
+    return kBusSrcPlayback + (d - kBusSrcPlayback - extra);
+}
 constexpr float kNominalSourceDb = -18.0f;    // assumed nominal source peak level for the headroom estimate
 
 const char* className(NodeClass c) {
@@ -150,7 +158,7 @@ private:
     int colNodeA(int c) const { return c < kMaxGroups ? RV::nodeGroup(c) : RV::nodeFxSend(c - kMaxGroups); }
     NodeClass colClassA(int c) const { return c < kMaxGroups ? NodeClass::Group : NodeClass::FxSend; }
     int sendParam(int r, int f) const {
-        return r < nIn() ? ParamBank::index(Mod::Input, r, InputP::Fx1 + f) : ParamBank::index(Mod::Group, r - nIn(), GroupP::Fx1 + f);
+        return r < nIn() ? ParamBank::index(Mod::Input, r, inputSendParam(f)) : ParamBank::index(Mod::Group, r - nIn(), groupSendParam(f));
     }
     void setupGridA() {
         gridA.setComponentID("matrix-grid-a");
@@ -200,12 +208,12 @@ private:
     }
 
     // ---------------------------------------------------------------- grid B: sources -> outputs
-    int busRow(int r) const { return r - nIn(); }
+    int busRow(int r) const { return displayBusRow(r - nIn()); }
     int rowNodeB(int r) const {
         if (r < nIn()) return RV::nodeInput(r);
         const int b = busRow(r);
         if (b < kBusSrcFxBase) return RV::nodeGroup(b / 2);
-        if (b < kBusSrcPlayback) return RV::nodeFxReturn((b - kBusSrcFxBase) / 2);
+        if (busRowIsFxReturn(b)) return RV::nodeFxReturn(busRowFxIndex(b));
         if (b < kBusSrcMaster) return RV::nodePlayback();
         return RV::nodeMaster();
     }
@@ -213,7 +221,7 @@ private:
         if (r < nIn()) return NodeClass::ProcInput;
         const int b = busRow(r);
         if (b < kBusSrcFxBase) return NodeClass::Group;
-        if (b < kBusSrcPlayback) return NodeClass::FxReturn;
+        if (busRowIsFxReturn(b)) return NodeClass::FxReturn;
         if (b < kBusSrcMaster) return NodeClass::Playback;
         return NodeClass::Master;
     }
@@ -223,7 +231,7 @@ private:
         const int b = busRow(r);
         const juce::String lr = (b % 2) == 0 ? " L" : " R";
         if (b < kBusSrcFxBase) return show.groupDisplayName(b / 2) + lr;
-        if (b < kBusSrcPlayback) return juce::String(kFxNames[(b - kBusSrcFxBase) / 2]) + " return" + lr;
+        if (busRowIsFxReturn(b)) return juce::String(kFxNames[busRowFxIndex(b)]) + " return" + lr;
         if (b < kBusSrcMaster) return "Playback" + lr;
         return "Master" + lr;
     }
@@ -234,9 +242,9 @@ private:
         if (r < nIn()) return dbToLin(kit::actual(p, ParamBank::index(Mod::Input, r, InputP::Trim)));
         const int b = busRow(r);
         if (b < kBusSrcFxBase) return dbToLin(kit::actual(p, ParamBank::index(Mod::Group, b / 2, GroupP::Trim)));
-        if (b < kBusSrcPlayback) { const int f = (b - kBusSrcFxBase) / 2;
-            static const Mod mods[kNumFx] = { Mod::FxDelay, Mod::FxEcho, Mod::FxTape, Mod::FxReverse, Mod::FxNoise };
-            static const int rets[kNumFx] = { DelayP::Return, EchoP::Return, TapeP::Return, ReverseP::Return, NoiseP::Return };
+        if (busRowIsFxReturn(b)) { const int f = busRowFxIndex(b);
+            static const Mod mods[kNumFx] = { Mod::FxDelay, Mod::FxEcho, Mod::FxTape, Mod::FxReverse, Mod::FxNoise, Mod::FxReverb, Mod::FxMulti };
+            static const int rets[kNumFx] = { DelayP::Return, EchoP::Return, TapeP::Return, ReverseP::Return, NoiseP::Return, ReverbP::Return, MultiP::Return };
             return dbToLin(kit::actual(p, ParamBank::index(mods[f], 0, rets[f]))); }
         if (b < kBusSrcMaster) return dbToLin(kit::actual(p, ParamBank::index(Mod::Global, 0, GlobalP::PlaybackLevel)));
         return dbToLin(kit::actual(p, ParamBank::index(Mod::Master, 0, MasterP::Level)));
@@ -295,7 +303,7 @@ private:
             if (r < nIn()) return "Direct: processed inputs (live mics)";
             const int b = busRow(r);
             if (b < kBusSrcFxBase) return "Groups";
-            if (b < kBusSrcPlayback) return "FX returns";
+            if (busRowIsFxReturn(b)) return "FX returns";
             if (b < kBusSrcMaster) return "Playback";
             return "Master crowd bus";
         };
@@ -324,7 +332,7 @@ private:
         gridB.onRowClick = [this](int r) {
             if (r < nIn()) ctx.select({ Selection::Kind::Input, r });
             else if (busRow(r) < kBusSrcFxBase) ctx.select({ Selection::Kind::Group, busRow(r) / 2 });
-            else if (busRow(r) >= kBusSrcMaster) ctx.select({ Selection::Kind::Master, 0 });
+            else if (busRow(r) >= kBusSrcMaster && busRow(r) < kBusSrcLegacyCount) ctx.select({ Selection::Kind::Master, 0 });
         };
         gridB.cellHighlighted = [this](int r, int o) { return onPath(rowNodeB(r)) && onPath(RV::nodeOutput(o)) && getB(r, o) != 0.0f; };
         gridB.rowHighlighted = [this](int r) { return onPath(rowNodeB(r)); };
@@ -380,7 +388,7 @@ private:
         edges = RV::edgesFromState(routing);
         for (int i = 0; i < nIn(); ++i)
             for (int f = 0; f < kNumFx; ++f)
-                if (kit::actual(proc, ParamBank::index(Mod::Input, i, InputP::Fx1 + f)) > -79.9f) edges.push_back({ RV::nodeInput(i), RV::nodeFxSend(f) });
+                if (kit::actual(proc, ParamBank::index(Mod::Input, i, inputSendParam(f))) > -79.9f) edges.push_back({ RV::nodeInput(i), RV::nodeFxSend(f) });
         dsp::FeedbackCandidate c[1];
         topSeverity = proc.getEngine().feedback().getCandidates(c, 1) > 0 ? c[0].severity : 0.0f;
         if (pathNodes.size() != static_cast<size_t>(RV::nodeCount())) pathNodes.assign(static_cast<size_t>(RV::nodeCount()), false);

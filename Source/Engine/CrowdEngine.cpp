@@ -116,6 +116,7 @@ void CrowdEngine::tapPointers(int id, const float* out[2], int& channels) const 
     else if (id < TapMap::Master) { out[0] = retL.channel(id - TapMap::Fx); out[1] = retR.channel(id - TapMap::Fx); }
     else if (id == TapMap::Master) { out[0] = mastBuf.channel(0); out[1] = mastBuf.channel(1); }
     else if (id == TapMap::Playback) { out[0] = pbL.channel(9); out[1] = pbR.channel(9); }
+    else if (id >= TapMap::FxExtra) { const int f = TapMap::fxSlotOf(id); out[0] = retL.channel(f); out[1] = retR.channel(f); }
     else if (id < TapMap::Count) {
         const int pair = id - TapMap::OutPair;
         out[0] = pair * 2 < numOut ? outBuf.channel(pair * 2) : nullptr;
@@ -203,7 +204,7 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         bool wantPre = p[InputP::FxPre] >= 0.5f;
         if (wantPre) {
             bool any = false;
-            for (int f = 0; f < kNumFx; ++f) any = any || p[InputP::Fx1 + f] > -79.9f;
+            for (int f = 0; f < kNumFx; ++f) any = any || p[inputSendParam(f)] > -79.9f;
             wantPre = any;
         }
         inputs[static_cast<size_t>(i)].process(chans, lead ? 2 : 1, n, p, anySolo && !soloed, wantPre ? pre : nullptr);
@@ -275,7 +276,7 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         const float* src = preDyn.channel(i);
         for (int f = 0; f < kNumFx; ++f) {
             auto& s = inSend[si * kNumFx + static_cast<size_t>(f)];
-            s.setTarget(dsp::dbToGainOrZero(p[InputP::Fx1 + f]) * sendMod, rampMs);
+            s.setTarget(dsp::dbToGainOrZero(p[inputSendParam(f)]) * sendMod, rampMs);
             if (!s.isSmoothing() && s.value() == 0.0f) continue;
             // Each input contributes with its pan contribution; a send gain smoother is shared by L and R.
             if (s.isSmoothing()) {
@@ -307,7 +308,7 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         groupHistoryBuf[static_cast<size_t>(g)].push(groupL.channel(g), n);
         for (int f = 0; f < kNumFx; ++f) {
             auto& s = grpSend[static_cast<size_t>(g * kNumFx + f)];
-            s.setTarget(dsp::dbToGainOrZero(p[GroupP::Fx1 + f]) * sendMod, rampMs);
+            s.setTarget(dsp::dbToGainOrZero(p[groupSendParam(f)]) * sendMod, rampMs);
             float* sl = sendL.channel(f);
             float* sr = sendR.channel(f);
             if (s.isSmoothing()) {

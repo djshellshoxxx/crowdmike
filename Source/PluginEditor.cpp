@@ -133,9 +133,10 @@ bool CrowdMikeAudioProcessorEditor::keyPressed(const juce::KeyPress& key, juce::
 
 bool CrowdMikeAudioProcessorEditor::keyStateChanged(bool, juce::Component*)
 {
-    // Momentary performance keys: E = echo throw, V = reverse (held).
+    // Momentary performance keys: E = echo throw, V = reverse, K = stadium reverb tail kill (held).
     const bool e = juce::KeyPress::isKeyCurrentlyDown('E');
     const bool v = juce::KeyPress::isKeyCurrentlyDown('V');
+    const bool k = juce::KeyPress::isKeyCurrentlyDown('K');
     const bool typing = dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) != nullptr;
     if (typing) return false;
     auto set = [this](Mod m, int id, bool on) {
@@ -143,5 +144,6 @@ bool CrowdMikeAudioProcessorEditor::keyStateChanged(bool, juce::Component*)
     };
     if (e != echoKeyDown) { echoKeyDown = e; set(Mod::FxEcho, params::EchoP::Trigger, e); }
     if (v != reverseKeyDown) { reverseKeyDown = v; set(Mod::FxReverse, params::ReverseP::Trigger, v); }
+    if (k != reverbKillKeyDown) { reverbKillKeyDown = k; set(Mod::FxReverb, params::ReverbP::TailKill, k); }
     return false;
 }

@@ -1,5 +1,5 @@
-// FX page (GUI_SPEC sections 6 and 10): a rack of the five send/return effects (Digital Delay, Echo Throw, Tape Delay,
-// Reverse Chunk with its dedicated buffer display, Noise Exciter) followed by insert-module cards (De-esser,
+// FX page (GUI_SPEC sections 6 and 10): a rack of the seven send/return effects (Digital Delay, Echo Throw, Tape Delay,
+// Reverse Chunk with its dedicated buffer display, Noise Exciter, Stadium Reverb with freeze / tail kill, Crowd Multiplier) followed by insert-module cards (De-esser,
 // Compressor, Limiter, HPF/LPF, Parametric/Notch EQ, Width/Decorrelation, Gate/Expander) that act on the target
 // chosen at the top (an input, a group or the master bus). Every card: bypass/on, wet/dry or mix where it exists,
 // meters where the engine provides them, reset-to-defaults (one undo step), presets, MIDI/macro assignment shortcut.
@@ -21,6 +21,7 @@ struct SendFxInfo {
     const char* presetTarget;
     int bypass, mix, ret;
     const char* mixCaption;
+    const char* toggleText = "BYPASS";   // the legacy FX have a Bypass parameter; slots 6 and 7 have an On parameter
 };
 const SendFxInfo& sendInfo(int f) {
     static const SendFxInfo info[kNumFx] = {
@@ -29,6 +30,8 @@ const SendFxInfo& sendInfo(int f) {
         { Mod::FxTape, "Tape Delay", "wow / flutter / drive / age", "tape", TapeP::Bypass, TapeP::Mix, TapeP::Return, "Wet/Dry" },
         { Mod::FxReverse, "Reverse Chunk", "plays captured chunks backward", "reverse", ReverseP::Bypass, ReverseP::Mix, ReverseP::Return, "Wet/Dry" },
         { Mod::FxNoise, "Noise Exciter", "shaped noise under the crowd (capped -24 dBFS)", "noise", NoiseP::Bypass, NoiseP::Amount, NoiseP::Return, "Amount" },
+        { Mod::FxReverb, "Stadium Reverb", "8-line FDN, freeze / tail kill, tempo-synced pre-delay", "reverb", ReverbP::On, ReverbP::Wet, ReverbP::Return, "Wet", "ON" },
+        { Mod::FxMulti, "Crowd Multiplier", "2-16 decorrelated voices make a small crowd sound larger", "multi", MultiP::On, MultiP::Level, MultiP::Return, "Level", "ON" },
     };
     return info[juce::jlimit(0, kNumFx - 1, f)];
 }
@@ -96,7 +99,7 @@ protected:
 class SendCard final : public ModuleCard {
 public:
     SendCard(EditorContext& c, int fx) : ModuleCard(c.proc, sendInfo(fx).title), ctx(c), f(fx),
-        bypass(c.proc, fxIndex(fx, sendInfo(fx).bypass), "BYPASS"),
+        bypass(c.proc, fxIndex(fx, sendInfo(fx).bypass), sendInfo(fx).toggleText),
         mix(sendInfo(fx).mixCaption, slider(c.proc, fxIndex(fx, sendInfo(fx).mix), 46), 50),
         ret("Return", slider(c.proc, fxIndex(fx, sendInfo(fx).ret), 56), 44),
         meter(LevelMeter::Orientation::Horizontal) {
@@ -104,7 +107,7 @@ public:
         setComponentID("fx-card-" + juce::String(f));
         setSubtitle(info.subtitle);
         allParams = paramIndices(info.mod, 0);
-        bypass.setTooltip("Bypass (click-free crossfade)");
+        bypass.setTooltip(juce::String(info.toggleText) == "ON" ? "Effect on / off (click-free fade; the effect costs nothing while off)" : "Bypass (click-free crossfade)");
         mix.setTooltip(juce::String(info.mixCaption) + " of the effect");
         ret.setTooltip("Return level into the master bus (dB)");
         meter.source = [this] { return live ? proc.getMeters().fxPeak[static_cast<size_t>(f)].getAndReset() : 0.0f; };
@@ -130,6 +133,16 @@ public:
             addAndMakeVisible(*throwBtn);
             addAndMakeVisible(*tailBtn);
             skip.push_back(EchoP::Trigger); skip.push_back(EchoP::TailKill);
+        }
+        if (info.mod == Mod::FxReverb) {
+            freezeBtn = std::make_unique<ParamToggle>(proc, fxIndex(f, ReverbP::Freeze), "FREEZE");
+            tailBtn = std::make_unique<MomentaryButton>(proc, fxIndex(f, ReverbP::TailKill), "TAIL KILL");
+            freezeBtn->setTooltip("Freeze: closes the input and holds the current tail (also follows the global Freeze / Hold)");
+            tailBtn->setTooltip("Tail kill: fades the reverb out in about 40 ms while held (key K)");
+            tailBtn->setColour(juce::TextButton::buttonColourId, palette().danger.darker(0.5f));
+            addAndMakeVisible(*freezeBtn);
+            addAndMakeVisible(*tailBtn);
+            skip.push_back(ReverbP::Freeze); skip.push_back(ReverbP::TailKill);
         }
         if (info.mod == Mod::FxReverse) {
             viz = std::make_unique<ReverseVizView>();
@@ -160,7 +173,7 @@ public:
     void mouseDown(const juce::MouseEvent&) override { ctx.select({ Selection::Kind::Fx, f }); }
     int layoutHeight(int w) {
         int h = titleHeight() + px(12) + px(32);
-        if (throwBtn) h += px(52);
+        if (throwBtn || freezeBtn) h += px(52);
         if (viz) h += px(130);
         return h + panel.getPreferredHeight(w - px(12));
     }
@@ -174,9 +187,10 @@ public:
         const int half = row.getWidth() / 2;
         mix.setBounds(row.removeFromLeft(juce::jmin(half, px(220))).reduced(px(2)));
         ret.setBounds(row.removeFromLeft(juce::jmin(half, px(230))).reduced(px(2)));
-        if (throwBtn) {
+        if (throwBtn || freezeBtn) {
             auto big = r.removeFromTop(px(48));
-            throwBtn->setBounds(big.removeFromLeft(big.getWidth() / 2).reduced(px(4), px(2)));
+            juce::Component& first = throwBtn ? static_cast<juce::Component&>(*throwBtn) : static_cast<juce::Component&>(*freezeBtn);
+            first.setBounds(big.removeFromLeft(big.getWidth() / 2).reduced(px(4), px(2)));
             tailBtn->setBounds(big.reduced(px(4), px(2)));
             r.removeFromTop(px(4));
         }
@@ -194,6 +208,7 @@ public:
     }
     DragHandle handle;
     std::unique_ptr<MomentaryButton> throwBtn, tailBtn, trigger;
+    std::unique_ptr<ParamToggle> freezeBtn;
     std::unique_ptr<ReverseVizView> viz;
 private:
     EditorContext& ctx;
