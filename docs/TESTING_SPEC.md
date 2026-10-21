@@ -108,7 +108,7 @@ macOS:
 - REAPER
 - Ableton Live
 - Bitwig Studio
-- Logic for non-VST formats only if AU is added later
+- Logic: out of scope for beta (needs the AU format, POST_BETA_SPEC.md section 1)
 
 Linux:
 - REAPER

@@ -127,7 +127,7 @@ Features:
 - reverse clip
 - route to group/master/output
 - optional tempo sync
-- optional pitch/time processing later
+- pitch/time processing: out of scope for beta, specified in POST_BETA_SPEC.md section 7
 
 Playback file reading uses read-ahead buffers and worker threads.
 

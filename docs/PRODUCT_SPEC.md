@@ -80,7 +80,7 @@ Scene recall must support:
 - hosting arbitrary third-party plug-ins inside CrowdMike
 - networked audio transport such as Dante/AES67 directly in the DSP core
 
-These can be future integrations.
+These are out of scope for beta; the ones with a plan are specified in POST_BETA_SPEC.md (Dante/AES67 transport stays a non-goal: such interfaces work through the operating system audio device).
 
 ## 7. Suggested first-release limits
 
@@ -93,21 +93,27 @@ Configurable compile/runtime limits:
 - 32 playback clips
 - 32 simultaneously armed recorder tracks
 - up to 192 kHz where hardware/host permits
-- internal processing in 32-bit float, optional 64-bit host processing later
+- internal processing in 32-bit float (64-bit host processing is out of scope for beta, POST_BETA_SPEC.md section 8)
 
-## 8. Additional features worth including
+## 8. Additional features worth including (status at beta)
 
-- per-input automatic gain riding option with conservative range
-- feedback detector display and manual notch suggestion
-- 8-band parametric master EQ
-- stereo width and decorrelation effect for broadcast/recording buses
-- transient emphasis for applause
-- density/envelope follower that can drive effect sends
-- crowd gate/expander for quiet-stage suppression
-- momentary FX buttons suitable for MIDI foot/controller mapping
-- panic button that mutes all crowd reinforcement while leaving recording active
-- rehearsal mode with no physical output
-- virtual soundcheck from previous recordings
-- latency estimator and route latency display
-- file markers for notable crowd moments
-- autosave and crash-recovery state
+All of these are built unless the last column says otherwise. "Where" names the spec or page that defines the behaviour.
+
+| Feature | Status | Where |
+|---|---|---|
+| Per-input automatic gain riding with a conservative range | Built | `InputP::Riding*`, Inputs page, EFFECTS_SPEC |
+| Feedback detector display and manual notch suggestion | Built (advisory; the operator applies the notch) | ENGINE_SPEC section 8, GUI_SPEC section 11 |
+| 8-band parametric master EQ | Built | `MasterP::Eq*`, Inspector (Master) |
+| Stereo width and decorrelation for broadcast/recording buses | Built | EFFECTS_SPEC width section, groups and master |
+| Transient emphasis for applause | Built | per-input `TransientEnhancer` |
+| Density/envelope follower that drives effect sends | Built | `densityToSend` |
+| Crowd gate/expander for quiet-stage suppression | Built | per-input gate |
+| Momentary FX buttons suitable for MIDI foot/controller mapping | Built | echo throw, reverse, tail kill, freeze; MIDI momentary binding mode; keys E, V, K |
+| Panic button that mutes reinforcement while recording continues | Built | status bar, performance strip, F12, MIDI/OSC |
+| Rehearsal mode with no physical output | Built | `rehearsal` parameter, status badge |
+| Virtual soundcheck from previous recordings | Built | Playback page, RECORDING_SPEC section 11 |
+| Latency estimator and route latency display | Built | status bar estimate, Diagnostics page (route latency), host latency report |
+| File markers for notable crowd moments | Built | Record page, strip MARKER, Ctrl/Cmd+M, marker export |
+| Autosave and crash-recovery state | Built (standalone) | CONTROL_SPEC sections 9 and 10, `DeviceController` |
+| Performer ducker, line check, beat sync, stadium reverb, crowd multiplier, crowd energy tracker and Show Report | Built (added during beta) | DUCKER_SPEC, LINE_CHECK_SPEC, BEAT_SYNC_SPEC, EFFECTS_SPEC sections 19 and 20, SHOW_REPORT_SPEC |
+| AU format, auxiliary buses, true-peak limiter, automatic notches, pitch/time clips, 64-bit host processing | Out of scope for beta | POST_BETA_SPEC.md |

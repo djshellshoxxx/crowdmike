@@ -104,7 +104,7 @@ The engine tracks:
 - intentional input alignment delay
 - reverse-buffer latency where used in continuous mode
 - lookahead limiter latency
-- optional linear-phase processing if ever added
+- linear-phase processing is out of scope for beta (nothing in the engine is linear-phase)
 
 Plug-in wrappers report algorithmic latency to the host where required.
 
@@ -158,7 +158,7 @@ Algorithm:
 
 Output is analysis data only in v1. The UI can suggest notch frequency/Q/depth.
 
-Future mode may automatically insert bounded dynamic notches with explicit enable and maximum attenuation.
+Automatic bounded dynamic notches (explicit enable, maximum attenuation) are out of scope for beta and fully specified in POST_BETA_SPEC.md section 4. The beta only suggests notches; the operator applies them.
 
 ## 9. Panic path
 
