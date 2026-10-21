@@ -17,6 +17,7 @@
 #include "DSP/FeedbackDetector.h"
 #include "DSP/FxContext.h"
 #include "DSP/LevelHistory.h"
+#include "DSP/LoudnessMeter.h"
 #include "DSP/RoutingMatrix.h"
 #include "Engine/BusMatrix.h"
 #include "Engine/EngineBuffer.h"
@@ -104,6 +105,10 @@ private:
     std::array<dsp::LevelHistory, kMaxInputs> inHistory;
     std::array<dsp::LevelHistory, kMaxGroups> groupHistoryBuf;
     dsp::LevelHistory masterHistoryBuf;
+    dsp::LoudnessMeter loudness;   // Show Report: master short-term loudness / RMS
+
+    // Show Report event edge state (audio thread only). `init` latches the first chunk without counting.
+    struct EventEdges { bool init = false, panic = false, echo = false, freeze = false, clip = false, limiter = false; } edges;
 
     // Smoothed mixing cells
     std::array<dsp::Smoother, kMaxGroups * kMaxInputs> mixL {}, mixR {};

@@ -19,6 +19,7 @@ public:
     void process(const float* const* sendL, const float* const* sendR, const float* preL, const float* preR,
                  float* const* retL, float* const* retR, int n, const ParamBank& bank, const dsp::FxContext& ctx, float rampMs) noexcept;
     dsp::ReverseChunk::Viz getReverseViz() const noexcept { return reverse.getViz(); }
+    std::uint32_t getReverseTriggerCount() const noexcept { return reverse.getTriggerCount(); }   // Show Report counter
 private:
     dsp::DigitalDelay delay;
     dsp::EchoThrow echo;

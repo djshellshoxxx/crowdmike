@@ -1,5 +1,6 @@
 #include "ShowModel.h"
 #include <algorithm>
+#include <cmath>
 
 namespace crowdmike {
 namespace {
@@ -43,6 +44,7 @@ void ShowModel::resetToDefaults() {
     osc = {};
     recorder = {};
     ui = {};
+    report = {};
     lockedParams.clear();
     playback = juce::ValueTree("Playback");
 }
@@ -146,6 +148,13 @@ juce::ValueTree ShowModel::toValueTree() const {
     u.setProperty("recallScope", static_cast<int>(ui.recallScope), nullptr);
     t.appendChild(u, nullptr);
 
+    juce::ValueTree rp("Report");
+    rp.setProperty("enabled", report.enabled, nullptr);
+    rp.setProperty("autoMarkers", report.autoMarkers, nullptr);
+    rp.setProperty("autoExport", report.autoExport, nullptr);
+    rp.setProperty("peakSensitivity", report.peakSensitivity, nullptr);
+    t.appendChild(rp, nullptr);
+
     juce::StringArray locked;
     for (int idx : lockedParams) locked.add(ParamBank::idForIndex(idx));
     t.setProperty("locked", locked.joinIntoString(","), nullptr);
@@ -246,6 +255,13 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         }
         if (u.hasProperty("recallScope"))
             ui.recallScope = static_cast<unsigned>(static_cast<int>(u["recallScope"])) & 0xFFu;
+    }
+    if (auto rp = t.getChildWithName("Report"); rp.isValid()) {   // absent in states saved before the Show Report feature
+        report.enabled = rp.hasProperty("enabled") ? static_cast<bool>(rp["enabled"]) : true;
+        report.autoMarkers = rp.hasProperty("autoMarkers") ? static_cast<bool>(rp["autoMarkers"]) : true;
+        report.autoExport = rp.hasProperty("autoExport") ? static_cast<bool>(rp["autoExport"]) : true;
+        const double s = rp.hasProperty("peakSensitivity") ? static_cast<double>(rp["peakSensitivity"]) : 0.5;
+        report.peakSensitivity = std::isfinite(s) ? static_cast<float>(juce::jlimit(0.0, 1.0, s)) : 0.5f;
     }
     for (const auto& id : juce::StringArray::fromTokens(t["locked"].toString(), ",", ""))
         if (const int idx = ParamBank::indexForId(id); idx >= 0) lockedParams.push_back(idx);

@@ -116,6 +116,9 @@ public:
     void splitFile();
 
     void addMarker(const juce::String& label, MarkerType type);   // any non-audio thread; frame = getFramePosition()
+    /** Like addMarker() but at an explicit absolute engine frame (clamped to [0, getFramePosition()]); used by the Show
+        Report to place a "Crowd peak" marker on the moment of the peak instead of the moment it was detected. */
+    void addMarkerAt(juce::int64 frame, const juce::String& label, MarkerType type);
     std::vector<Marker> getMarkers() const;                        // absolute engine frames
     void clearMarkers();
 
