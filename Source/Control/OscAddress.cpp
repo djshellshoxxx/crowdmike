@@ -72,8 +72,43 @@ OscAction resolveOsc(const juce::String& address, const std::vector<float>& args
         if (parts.size() == 3 && (parts[2] == "prev" || parts[2] == "previous")) { act.kind = OscAction::Kind::ScenePrev; return act; }
         int idx = 0;
         if (parts.size() == 4 && parseIndex(parts[2], kNumScenes, idx) && parts[3] == "select") { act.kind = OscAction::Kind::SceneSelect; act.index = idx; return act; }
+        if (parts.size() == 3 && parts[2] == "scope") {
+            if (args.empty() || !std::isfinite(args[0])) { act.error = "scope needs a mask (1..255)"; return act; }
+            act.kind = OscAction::Kind::SceneScopeSet;
+            act.index = static_cast<int>(std::lround(args[0]));
+            return act;
+        }
+        if (parts.size() == 4 && parts[2] == "scope") {
+            static const char* const names[] = { "inputs", "groups", "fx", "master", "outputs", "routing", "names", "macros", "all" };
+            for (int b = 0; b < 9; ++b) {
+                if (parts[3].equalsIgnoreCase(names[b])) {
+                    act.kind = OscAction::Kind::SceneScopeBit;
+                    act.index = b;
+                    act.hasValue = !args.empty();
+                    act.value = args.empty() ? 0.0f : args[0];
+                    return act;
+                }
+            }
+            act.error = "bad scope name";
+            return act;
+        }
         act.error = "bad scene address";
         return act;
+    }
+    if (p1 == "tempo" && parts.size() == 3) {
+        const auto& what = parts[2];
+        if (what == "tap" || what == "resync" || what == "downbeat") {
+            if (!args.empty() && args[0] <= 0.0f) return act;   // button release
+            act.kind = what == "tap" ? OscAction::Kind::TempoTap : OscAction::Kind::TempoResync;
+            return act;
+        }
+        static const std::map<juce::String, juce::String> ids = {
+            { "bpm", "tempo.manualBpm" }, { "source", "tempo.source" }, { "quantise", "tempo.quantise" },
+            { "quantize", "tempo.quantise" }, { "nudge", "tempo.nudgeBpm" }, { "autoSource", "tempo.autoSource" },
+            { "barBeats", "tempo.barBeats" } };
+        const auto it = ids.find(what);
+        if (it == ids.end()) { act.error = "bad tempo address"; return act; }
+        return paramAction(it->second, args, false);
     }
     if (p1 == "record" && parts.size() == 3) {
         if (parts[2] == "start") act.kind = OscAction::Kind::RecordStart;

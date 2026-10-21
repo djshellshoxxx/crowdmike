@@ -62,7 +62,7 @@ public:
         unload.onClick = [this] { proc.unloadClipFile(slot); ctx.say("Clip " + juce::String(slot + 1) + " unloaded"); if (onChanged) onChanged(); };
         trigger.setButtonText(juce::String::fromUTF8("\xe2\x96\xb6 Trigger"));
         kit::setupButton(trigger, "Start (or restart) the clip", "play.trigger");
-        trigger.onClick = [this] { if (!proc.getPlayback().trigger(slot)) ctx.say("Trigger failed (queue full)", true); };
+        trigger.onClick = [this] { if (!proc.triggerClip(slot)) ctx.say("Trigger failed (queue full)", true); };
         stop.setButtonText(juce::String::fromUTF8("\xe2\x96\xa0 Stop"));
         kit::setupButton(stop, "Stop the clip (with its fade-out)", "play.stop");
         stop.onClick = [this] { proc.getPlayback().stop(slot); };

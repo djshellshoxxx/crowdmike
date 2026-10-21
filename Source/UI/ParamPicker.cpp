@@ -15,6 +15,7 @@ juce::String moduleDisplayName(Mod m) noexcept {
         case Mod::FxReverse: return "FX Reverse";
         case Mod::FxNoise: return "FX Noise";
         case Mod::Macro: return "Macros";
+        case Mod::Tempo: return "Tempo";
         case Mod::Count: break;
     }
     return "All modules";

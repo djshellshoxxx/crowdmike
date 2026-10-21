@@ -17,7 +17,8 @@ enum class MidiMsgType : int { CC = 0, NoteOnOff = 1, PitchBend = 2 };
 enum class BindMode : int { Absolute = 0, Toggle = 1, Momentary = 2, Trigger = 3 };
 enum class BindTarget : int {
     Param = 0, SceneSelect, SceneNext, ScenePrev, RecordStart, RecordStop, RecordToggle, RecordMarker, SplitFile,
-    ClipTrigger, ClipStop, StopAllClips, Panic, MacroValue
+    ClipTrigger, ClipStop, StopAllClips, Panic, MacroValue,
+    TempoTap, TempoResync, SceneScopeToggle   // appended for Beat Sync / recall scope (targetIndex of SceneScopeToggle: bit 0..7, 8 = all)
 };
 
 struct ControlBinding {   // one MIDI or OSC-independent binding record

@@ -2,13 +2,17 @@
 // Persistent regions of the main window (GUI_SPEC section 2): status bar, navigation rail, inspector, performance strip.
 #include "UI/EditorContext.h"
 #include "UI/Meters.h"
+#include "UI/TempoWidget.h"
 #include "UI/Widgets.h"
 
 namespace crowdmike::ui {
 class StatusBar final : public juce::Component, private Tickable, private EditorContext::Listener {
 public:
+    // Two rows: the original row plus a tempo row (Beat Sync widget + transient message).
+    static constexpr int kRowHeight = 44, kTempoRowHeight = 24, kHeight = kRowHeight + kTempoRowHeight;
     explicit StatusBar(EditorContext&);
     ~StatusBar() override;
+    TempoWidget& getTempoWidget() noexcept { return tempoWidget; }
     void resized() override;
     void paint(juce::Graphics&) override;
     void tick() override;
@@ -21,6 +25,7 @@ private:
     juce::TextButton prevScene { "<" }, nextScene { ">" };
     StatusBadge deviceBadge, recBadge, xrunBadge, modeBadge;
     ParamToggle panic, bypass;
+    TempoWidget tempoWidget;
     int messageTicks = 0;
 };
 

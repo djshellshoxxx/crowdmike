@@ -11,13 +11,21 @@
 #include "DSP/TapeDelay.h"
 
 namespace crowdmike {
+// Beat-quantised momentary triggers (docs/BEAT_SYNC_SPEC.md section 7). When `*Override` is set the engine owns the
+// trigger: the effect sees Trigger = 0 for the whole block, except from sample `*FireAt` (>= 0) where it sees a rising edge.
+struct FxTriggerPlan {
+    bool echoOverride = false, reverseOverride = false;
+    int echoFireAt = -1, reverseFireAt = -1;
+};
+
 class FxRack {
 public:
     void prepare(double sampleRate, int maxBlock);
     void reset();
     // sendL/sendR/retL/retR have kNumFx entries. preL/preR is the stereo pre-group input mix (Reverse "pre" source).
     void process(const float* const* sendL, const float* const* sendR, const float* preL, const float* preR,
-                 float* const* retL, float* const* retR, int n, const ParamBank& bank, const dsp::FxContext& ctx, float rampMs) noexcept;
+                 float* const* retL, float* const* retR, int n, const ParamBank& bank, const dsp::FxContext& ctx, float rampMs,
+                 const FxTriggerPlan* plan = nullptr) noexcept;
     dsp::ReverseChunk::Viz getReverseViz() const noexcept { return reverse.getViz(); }
     std::uint32_t getReverseTriggerCount() const noexcept { return reverse.getTriggerCount(); }   // Show Report counter
 private:
@@ -28,5 +36,6 @@ private:
     dsp::NoiseEnhancer noise;
     std::array<dsp::Smoother, kNumFx> returnGain {};
     bool first = true;
+    double sampleRateHz = 48000.0;
 };
 }

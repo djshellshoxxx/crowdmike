@@ -97,6 +97,20 @@ struct FxContext { double bpm = 120.0; bool hasTempo = false; double ppqPosition
 `DelayP::Division` index -> beats: `{0.125, 1/6, 0.25, 1/3, 0.375, 0.5, 2/3, 0.75, 1, 4/3, 1.5, 2, 4}`.
 `ReverseP::BeatDiv` index -> beats: `{1, 2, 4, 8, 16}`.
 
+### Beat Sync (docs/BEAT_SYNC_SPEC.md)
+
+```cpp
+// DSP/BeatTracker.h   : dsp::BeatTracker  prepare(sr) allocates; pushSamples(mono,n) noexcept (audio thread, lock-free FIFO);
+//   analyse() (worker thread); BeatEstimate getEstimate() const noexcept (seqlock, any thread); reset()
+// DSP/TapTempo.h      : dsp::TapTempo  tap(timeSec) -> accepted; hasBpm(); bpm()  (pure logic, 2.5 s reset, outlier reject)
+// DSP/MidiClockTempo.h: dsp::MidiClockTempo  onTick(samplePos)/onStart/onContinue/onStop; bpm(); ppqAt(pos)  (24 ppqn)
+// DSP/TriggerQuantiser.h: findGridOffset(...), TriggerQuantiser::process(edge, QuantiseTiming, n) -> Passthrough|None|Fire(offset)
+// Control/TempoHub.h  : crowdmike::TempoHub  process(n, TempoParams, HostTempoInfo) noexcept -> TempoState (audio thread, once per block);
+//   tap()/resyncDownbeat() message thread; midiClockTick/Start/Continue/Stop audio thread; snapshot() any thread
+```
+
+Parameter module `Mod::Tempo` (`tempo.*`, `params::TempoP`) is appended after the macros; `kBarBeatsTable` maps the bar-length choice.
+
 ### FeedbackDetector (advisory only)
 
 ```cpp

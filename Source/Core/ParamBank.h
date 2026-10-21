@@ -10,7 +10,7 @@
 #include "Core/ParamTables.h"
 
 namespace crowdmike {
-enum class Mod : int { Input, Group, Output, Master, Global, FxDelay, FxEcho, FxTape, FxReverse, FxNoise, Macro, Count };
+enum class Mod : int { Input, Group, Output, Master, Global, FxDelay, FxEcho, FxTape, FxReverse, FxNoise, Macro, Tempo, Count };
 
 struct ModInfo {
     Mod id;

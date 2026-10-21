@@ -21,7 +21,8 @@ void styleLabel(juce::Label& l, float h, bool bold = false, juce::Colour c = pal
 StatusBar::StatusBar(EditorContext& c)
     : ctx(c), proc(c.proc),
       panic(c.proc, ParamBank::index(Mod::Global, 0, GlobalP::Panic), "PANIC MUTE"),
-      bypass(c.proc, ParamBank::index(Mod::Global, 0, GlobalP::Bypass), "BYPASS") {
+      bypass(c.proc, ParamBank::index(Mod::Global, 0, GlobalP::Bypass), "BYPASS"),
+      tempoWidget(c) {
     title.setText("CROWDMIKE", juce::dontSendNotification);
     styleLabel(title, 17.0f, true, palette().accent);
     for (auto* l : { &sceneLabel, &rateLabel, &latencyLabel, &cpuLabel, &messageLabel }) styleLabel(*l, 12.5f);
@@ -30,14 +31,15 @@ StatusBar::StatusBar(EditorContext& c)
     for (auto* b : { &prevScene, &nextScene }) { addAndMakeVisible(*b); }
     prevScene.setTooltip("Previous scene (Ctrl+Left)");
     nextScene.setTooltip("Next scene (Ctrl+Right)");
-    prevScene.onClick = [this] { proc.getScenes().previous(); };
-    nextScene.onClick = [this] { proc.getScenes().next(); };
+    prevScene.onClick = [this] { proc.getScenes().previous(proc.getShow().ui.recallScope); };
+    nextScene.onClick = [this] { proc.getScenes().next(proc.getShow().ui.recallScope); };
     for (auto* b : { &deviceBadge, &recBadge, &xrunBadge, &modeBadge }) addAndMakeVisible(*b);
     panic.setColour(juce::ToggleButton::textColourId, palette().text);
     panic.setTooltip("Mute all crowd reinforcement outputs immediately. Recording continues. (F12)");
     bypass.setTooltip("True bypass: host input straight to output");
     addAndMakeVisible(panic);
     addAndMakeVisible(bypass);
+    addAndMakeVisible(tempoWidget);
     c.notify = [this](const juce::String& m, bool w) { showMessage(m, w); };
     c.addListener(this);
     tick();
@@ -57,7 +59,11 @@ void StatusBar::paint(juce::Graphics& g) {
 }
 
 void StatusBar::resized() {
-    auto r = getLocalBounds().reduced(8, 5);
+    auto full = getLocalBounds();
+    auto tempoRow = full.removeFromBottom(kTempoRowHeight).reduced(8, 1);
+    tempoWidget.setBounds(tempoRow.removeFromLeft(TempoWidget::kPreferredWidth)); tempoRow.removeFromLeft(8);
+    messageLabel.setBounds(tempoRow);
+    auto r = full.reduced(8, 5);
     title.setBounds(r.removeFromLeft(118));
     prevScene.setBounds(r.removeFromLeft(26)); r.removeFromLeft(2);
     sceneLabel.setBounds(r.removeFromLeft(160)); r.removeFromLeft(2);
@@ -71,7 +77,6 @@ void StatusBar::resized() {
     cpuLabel.setBounds(r.removeFromRight(78));
     latencyLabel.setBounds(r.removeFromRight(100));
     rateLabel.setBounds(r.removeFromRight(130));
-    messageLabel.setBounds(r);
 }
 
 void StatusBar::tick() {

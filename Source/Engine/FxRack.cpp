@@ -4,6 +4,7 @@ namespace crowdmike {
 using namespace params;
 
 void FxRack::prepare(double sr, int maxBlock) {
+    sampleRateHz = sr > 0.0 ? sr : 48000.0;
     delay.prepare(sr, maxBlock);
     echo.prepare(sr, maxBlock);
     tape.prepare(sr, maxBlock);
@@ -15,16 +16,40 @@ void FxRack::prepare(double sr, int maxBlock) {
 void FxRack::reset() { delay.reset(); echo.reset(); tape.reset(); reverse.reset(); noise.reset(); first = true; }
 
 void FxRack::process(const float* const* sL, const float* const* sR, const float* preL, const float* preR,
-                     float* const* rL, float* const* rR, int n, const ParamBank& bank, const dsp::FxContext& ctx, float rampMs) noexcept {
+                     float* const* rL, float* const* rR, int n, const ParamBank& bank, const dsp::FxContext& ctx, float rampMs,
+                     const FxTriggerPlan* plan) noexcept {
     const float* pDelay = bank.effective(Mod::FxDelay);
     const float* pEcho = bank.effective(Mod::FxEcho);
     const float* pTape = bank.effective(Mod::FxTape);
     const float* pRev = bank.effective(Mod::FxReverse);
     const float* pNoise = bank.effective(Mod::FxNoise);
     delay.process(sL[0], sR[0], rL[0], rR[0], n, pDelay, ctx);
-    echo.process(sL[1], sR[1], rL[1], rR[1], n, pEcho, ctx);
+    if (plan != nullptr && plan->echoOverride) {
+        // Split the block at the grid line so the throw starts on exactly that sample.
+        float local[EchoP::Count];
+        std::copy(pEcho, pEcho + EchoP::Count, local);
+        const int at = plan->echoFireAt < 0 || plan->echoFireAt >= n ? n : plan->echoFireAt;
+        if (at > 0) { local[EchoP::Trigger] = 0.0f; echo.process(sL[1], sR[1], rL[1], rR[1], at, local, ctx); }
+        if (at < n) { local[EchoP::Trigger] = 1.0f; echo.process(sL[1] + at, sR[1] + at, rL[1] + at, rR[1] + at, n - at, local, ctx); }
+    } else {
+        echo.process(sL[1], sR[1], rL[1], rR[1], n, pEcho, ctx);
+    }
     tape.process(sL[2], sR[2], rL[2], rR[2], n, pTape, ctx);
-    reverse.process(sL[3], sR[3], preL, preR, rL[3], rR[3], n, pRev, ctx);
+    if (plan != nullptr && plan->reverseOverride) {
+        float local[ReverseP::Count];
+        std::copy(pRev, pRev + ReverseP::Count, local);
+        const int at = plan->reverseFireAt < 0 || plan->reverseFireAt >= n ? n : plan->reverseFireAt;
+        if (at > 0) { local[ReverseP::Trigger] = 0.0f; reverse.process(sL[3], sR[3], preL, preR, rL[3], rR[3], at, local, ctx); }
+        if (at < n) {
+            dsp::FxContext c2 = ctx;
+            if (c2.hasTempo && std::isfinite(c2.bpm)) c2.ppqPosition += static_cast<double>(at) * c2.bpm / 60.0 / sampleRateHz;
+            local[ReverseP::Trigger] = 1.0f;
+            reverse.process(sL[3] + at, sR[3] + at, preL != nullptr ? preL + at : nullptr, preR != nullptr ? preR + at : nullptr,
+                            rL[3] + at, rR[3] + at, n - at, local, c2);
+        }
+    } else {
+        reverse.process(sL[3], sR[3], preL, preR, rL[3], rR[3], n, pRev, ctx);
+    }
     noise.process(sL[4], sR[4], rL[4], rR[4], n, pNoise, ctx);
     const float returns[kNumFx] = { pDelay[DelayP::Return], pEcho[EchoP::Return], pTape[TapeP::Return], pRev[ReverseP::Return], pNoise[NoiseP::Return] };
     for (int f = 0; f < kNumFx; ++f) {

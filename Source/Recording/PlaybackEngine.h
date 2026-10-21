@@ -78,6 +78,9 @@ public:
     /** Starts (or restarts, crossfading) the clip `startOffsetSamples` into the next processed block. Ignored while
         the panic mute is active or no clip is loaded. Returns false if the command queue is full. */
     bool trigger(int slot, int startOffsetSamples = 0);
+    /** AUDIO THREAD ONLY (the thread that calls process(), before process() in the same block): starts the clip
+        `startOffsetSamples` into that block. Lock-free; used by the engine's beat-quantised clip triggers. */
+    bool triggerFromAudioThread(int slot, int startOffsetSamples) noexcept;
     bool stop(int slot);
     bool stopAll();
     bool setSettings(int slot, const ClipSettings&);
@@ -139,6 +142,7 @@ private:
     bool muted = false;
 
     CommandQueue<Command, 512> commands;
+    SpscQueue<Command, 32> audioCommands;   // single producer = the audio thread (triggerFromAudioThread)
     RetireQueue<ClipData*, 256> retire;
 
     mutable std::mutex controlLock;

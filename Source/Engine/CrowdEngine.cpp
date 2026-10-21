@@ -1,11 +1,13 @@
 #include "CrowdEngine.h"
 #include "Engine/Panning.h"
+#include "Core/ParamTables.h"
 #include <chrono>
 
 namespace crowdmike {
 using namespace params;
 
 namespace {
+constexpr int kTempoSourceAuto = 4;   // TempoSource::Auto (Control/TempoHub.h); the engine does not depend on Control
 // dst += src * smoothed gain (per-sample ramp only while the gain moves).
 inline void addRamped(float* dst, const float* src, dsp::Smoother& g, int n) noexcept {
     if (g.isSmoothing()) { for (int i = 0; i < n; ++i) dst[i] += src[i] * g.next(); }
@@ -56,6 +58,12 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     duckDelay.prepare(sr, maxBlock, 2 * kMaxGroups + 2 * kNumFx, 10.0f);
     probeBank.prepare(sr, numIn);
     feedbackDetector.prepare(sr);
+    beat.prepare(sr);
+    beatMono.assign(static_cast<size_t>(maxBlock), 0.0f);
+    beatFeeding = false;
+    echoQuant.reset(); reverseQuant.reset(); clipQuant.reset();
+    prevEchoTrig = prevReverseTrig = echoSuppress = reverseSuppress = false;
+    clipPendingCount = 0;
     correlation.prepare(sr);
     for (auto& h : inHistory) h.prepare(sr, 4.0f, 160);
     for (auto& h : groupHistoryBuf) h.prepare(sr, 4.0f, 160);
@@ -82,6 +90,13 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     for (auto& t : trackSource) t.store(-1);
     for (auto& t : trackChannels) t.store(1);
     prepared = true;
+}
+
+void CrowdEngine::requestClipTrigger(int slot) noexcept {
+    if (slot < 0 || slot >= kMaxClips) return;
+    int s1, n1, s2, n2;
+    clipFifo.prepareToWrite(1, s1, n1, s2, n2);
+    if (n1 > 0) { clipRing[static_cast<size_t>(s1)] = slot; clipFifo.finishedWrite(1); }
 }
 
 void CrowdEngine::setTrackSource(int track, int tapId, int channels) noexcept {
@@ -307,6 +322,35 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         inHistory[static_cast<size_t>(i)].push(x, n);
     }
 
+    // ---- 2b. Beat Sync: block timing for quantised triggers (Echo / Reverse / clips), BEAT_SYNC_SPEC section 7
+    const float* TP = bank.effective(Mod::Tempo);
+    dsp::QuantiseTiming qt;
+    qt.mode = juce::jlimit(0, 3, juce::roundToInt(TP[TempoP::Quantise]));
+    qt.barBeats = kBarBeatsTable[juce::jlimit(0, 5, juce::roundToInt(TP[TempoP::BarBeats]))];
+    qt.bpm = info.bpm;
+    qt.hasTempo = info.hasTempo;
+    qt.playing = info.playing;
+    qt.sampleRate = sampleRate;
+    qt.ppq = info.ppqPosition + (info.hasTempo && std::isfinite(info.bpm) ? static_cast<double>(offset) * info.bpm / 60.0 / sampleRate : 0.0);
+    {
+        bool request = false;
+        for (;;) {
+            int s1, n1, s2, n2;
+            clipFifo.prepareToRead(1, s1, n1, s2, n2);
+            if (n1 <= 0) break;
+            const int slot = clipRing[static_cast<size_t>(s1)];
+            clipFifo.finishedRead(1);
+            request = true;
+            if (clipPendingCount < static_cast<int>(clipPending.size())) clipPending[static_cast<size_t>(clipPendingCount++)] = slot;
+        }
+        const auto r = clipQuant.process(request, qt, n);
+        if (r.kind != dsp::QuantiseResult::Kind::None) {   // Passthrough (no quantising) or Fire
+            if (services.playback != nullptr)
+                for (int k = 0; k < clipPendingCount; ++k) services.playback->triggerFromAudioThread(clipPending[static_cast<size_t>(k)], r.kind == dsp::QuantiseResult::Kind::Fire ? r.offset : 0);
+            clipPendingCount = 0;
+        }
+    }
+
     // ---- 3. playback clips (-> master / groups / direct bus)
     pbL.clear(n);
     pbR.clear(n);
@@ -421,7 +465,25 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     ctx.densityMod = densityNow;
     const float* sendLp[kNumFx]; const float* sendRp[kNumFx]; float* retLp[kNumFx]; float* retRp[kNumFx];
     for (int f = 0; f < kNumFx; ++f) { sendLp[f] = sendL.channel(f); sendRp[f] = sendR.channel(f); retLp[f] = retL.channel(f); retRp[f] = retR.channel(f); }
-    fx.process(sendLp, sendRp, preMix.channel(0), preMix.channel(1), retLp, retRp, n, bank, ctx, rampMs);
+    FxTriggerPlan plan;
+    {
+        const float* pe = bank.effective(Mod::FxEcho);
+        const float* pr = bank.effective(Mod::FxReverse);
+        const bool eRaw = pe[EchoP::Trigger] >= 0.5f, rRaw = pr[ReverseP::Trigger] >= 0.5f;
+        const bool eEdge = eRaw && !prevEchoTrig, rEdge = rRaw && !prevReverseTrig;
+        prevEchoTrig = eRaw; prevReverseTrig = rRaw;
+        const auto er = echoQuant.process(eEdge, qt, n), rr = reverseQuant.process(rEdge, qt, n);
+        const auto resolve = [](const dsp::QuantiseResult& q, bool raw, bool& suppress, bool& over, int& at) {
+            using K = dsp::QuantiseResult::Kind;
+            if (q.kind != K::Passthrough) { over = true; at = q.kind == K::Fire ? q.offset : -1; suppress = raw; }
+            else if (suppress) {   // quantising just ended while the button is still held: do not re-fire on the stale edge
+                if (raw) { over = true; at = -1; } else suppress = false;
+            }
+        };
+        resolve(er, eRaw, echoSuppress, plan.echoOverride, plan.echoFireAt);
+        resolve(rr, rRaw, reverseSuppress, plan.reverseOverride, plan.reverseFireAt);
+    }
+    fx.process(sendLp, sendRp, preMix.channel(0), preMix.channel(1), retLp, retRp, n, bank, ctx, rampMs, &plan);
     for (int f = 0; f < kNumFx; ++f) updatePeak(meters.fxPeak[static_cast<size_t>(f)], retL.channel(f), n);
 
     // ---- 6b. performer ducker (docs/DUCKER_SPEC.md): ducked copies feed the master and the bus matrix; taps keep the originals
@@ -436,6 +498,21 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         juce::FloatVectorOperations::add(mr, duckGR[static_cast<size_t>(g)], n);
     }
     density.process(mastBuf.data(), 2, n);
+    {   // Auto tempo: feed the onset analyser from the selected input or the master bus (before the FX returns)
+        const bool autoOn = juce::roundToInt(TP[TempoP::Source]) == kTempoSourceAuto;
+        if (autoOn && !beatFeeding) beat.reset();
+        beatFeeding = autoOn;
+        if (autoOn) {
+            const int sel = juce::jlimit(0, kMaxInputs, juce::roundToInt(TP[TempoP::AutoSource]));
+            float* mono = beatMono.data();
+            if (sel >= 1 && sel <= ins) {
+                std::copy(proc.channel(sel - 1), proc.channel(sel - 1) + n, mono);
+            } else {
+                for (int s = 0; s < n; ++s) mono[s] = 0.5f * (ml[s] + mr[s]);
+            }
+            beat.pushSamples(mono, n);
+        }
+    }
     for (int f = 0; f < kNumFx; ++f) {
         juce::FloatVectorOperations::add(ml, duckFL[static_cast<size_t>(f)], n);
         juce::FloatVectorOperations::add(mr, duckFR[static_cast<size_t>(f)], n);
