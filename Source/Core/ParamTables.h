@@ -194,6 +194,25 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(MonoCompat, F("monoCompat", "Mono Compatibility", 0.f, 1.f, 0.f)) \
     X(LfMono, F("lfMonoHz", "Low-frequency Mono Cutoff", 20.f, 500.f, 120.f, "Hz", 1.f, 150.f))
 
+// ---------------------------------------------------------------- Performer ducker (appended to the global block, docs/DUCKER_SPEC.md)
+#define CM_DUCK_KEYS "None|Input 1|Input 2|Input 3|Input 4|Input 5|Input 6|Input 7|Input 8|Input 9|Input 10|Input 11|Input 12|Input 13|Input 14|Input 15|Input 16"
+#define CM_DUCKER(X) \
+    X(DuckOn, B("duckOn", "Ducker On")) \
+    X(DuckKey, C("duckKey", "Ducker Key Input", CM_DUCK_KEYS, 0)) \
+    X(DuckExcludeKey, B("duckExcludeKey", "Ducker Exclude Key Input", true)) \
+    X(DuckThr, F("duckThrDb", "Ducker Threshold", -80.f, 0.f, -35.f, "dB", 0.1f)) \
+    X(DuckDepth, F("duckDepthDb", "Ducker Depth", -30.f, 0.f, -6.f, "dB", 0.1f)) \
+    X(DuckAttack, F("duckAttackMs", "Ducker Attack", 1.f, 200.f, 10.f, "ms", 0.1f, 20.f)) \
+    X(DuckHold, F("duckHoldMs", "Ducker Hold", 0.f, 2000.f, 250.f, "ms", 1.f, 300.f)) \
+    X(DuckRelease, F("duckReleaseMs", "Ducker Release", 10.f, 5000.f, 400.f, "ms", 1.f, 500.f)) \
+    X(DuckTarget, C("duckTarget", "Ducker Target", "Crowd groups|FX returns|Both", 2)) \
+    X(DuckRange, F("duckRangeDb", "Ducker Range Clamp", -30.f, 0.f, -30.f, "dB", 0.1f)) \
+    X(DuckKeyHpf, F("duckKeyHpfHz", "Ducker Key HPF", 20.f, 2000.f, 120.f, "Hz", 1.f, 300.f)) \
+    X(DuckKeyLpf, F("duckKeyLpfHz", "Ducker Key LPF", 1000.f, 20000.f, 6000.f, "Hz", 1.f, 6000.f)) \
+    X(DuckLookahead, F("duckLookaheadMs", "Ducker Lookahead", 0.f, 10.f, 0.f, "ms", 0.1f))
+namespace DuckP { enum { On, Key, ExcludeKey, Thr, Depth, Attack, Hold, Release, Target, Range, KeyHpf, KeyLpf, Lookahead, Count }; }
+enum DuckTargetId { DuckTargetGroups = 0, DuckTargetFx = 1, DuckTargetBoth = 2 };
+
 // ---------------------------------------------------------------- Global ("" prefix)
 // "limiterCeilingDb" is the frozen first-release ID: the output-stage limiter ceiling.
 #define CM_GLOBAL_PARAMS(X) \
@@ -209,7 +228,8 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
     X(Soundcheck, B("soundcheck", "Virtual Soundcheck")) \
     X(RecordAll, B("recordAll", "Record All")) \
     X(SceneNext, B("sceneNext", "Next Scene")) \
-    X(ScenePrev, B("scenePrev", "Previous Scene"))
+    X(ScenePrev, B("scenePrev", "Previous Scene")) \
+    CM_DUCKER(X)
 
 // ---------------------------------------------------------------- Effects ("fx.<name>.")
 #define CM_FX_DELAY(X) \
@@ -323,4 +343,5 @@ constexpr int masterEqBase() { return MasterP::Eq1On; }
 constexpr int masterCompBase() { return MasterP::MstCompOn; }
 constexpr int masterLimBase() { return MasterP::MstLimOn; }
 constexpr int masterWidthBase() { return MasterP::WidthOn; }
+constexpr int duckBase() { return GlobalP::DuckOn; }   // DuckP block inside the global table (13 contiguous entries)
 }
