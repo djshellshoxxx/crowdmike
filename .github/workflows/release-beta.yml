@@ -1,0 +1,382 @@
+name: release-beta
+
+# Publishes a GitHub PRE-RELEASE (the "beta" section) for an exact commit.
+#   1. gate     : requires a successful ci.yml run for the commit (never re-runs tests).
+#   2. packages : independent per-platform jobs that only compile Standalone/VST3/CLAP and package them.
+#   3. validate : optional pluginval + clap-validator on the Linux build (informational, never blocks).
+#   4. publish  : SHA256SUMS + generated notes, creates or updates tag v<version> (prerelease), replaces assets.
+# Re-running with the same version is idempotent; platforms=windows|macos|linux rebuilds just that platform and
+# replaces only its assets. See docs/RELEASE_PROCESS.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.3.0-beta.1 (tag becomes v<version>)"
+        required: true
+        type: string
+      platforms:
+        description: "Platforms to build and (re)publish"
+        required: true
+        type: choice
+        default: all
+        options: [all, windows, macos, linux]
+      run_validators:
+        description: "Run pluginval and clap-validator on the Linux build (informational)"
+        required: true
+        type: boolean
+        default: false
+  push:
+    tags: ['beta-*']        # tag beta-0.3.0-beta.1 releases version 0.3.0-beta.1 with all platforms
+
+concurrency:
+  group: release-beta-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      numeric: ${{ steps.v.outputs.numeric }}
+      tag: ${{ steps.v.outputs.tag }}
+      sha: ${{ steps.v.outputs.sha }}
+      platforms: ${{ steps.v.outputs.platforms }}
+      windows: ${{ steps.v.outputs.windows }}
+      macos: ${{ steps.v.outputs.macos }}
+      linux: ${{ steps.v.outputs.linux }}
+      validate: ${{ steps.v.outputs.validate }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve and validate inputs
+        id: v
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          IN_VERSION: ${{ inputs.version }}
+          IN_PLATFORMS: ${{ inputs.platforms }}
+          IN_VALIDATE: ${{ inputs.run_validators }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == "push" ]]; then
+            version="${REF_NAME#beta-}"; platforms=all; validate=true
+          else
+            version="$IN_VERSION"; platforms="$IN_PLATFORMS"; validate="$IN_VALIDATE"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Version '$version' is not of the form MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-suffix"; exit 1
+          fi
+          numeric="${version%%-*}"
+          cmake_version="$(sed -n 's/^project(CrowdMike VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          if [[ "$cmake_version" != "$numeric" ]]; then
+            echo "::error::CMakeLists.txt is at $cmake_version but the release is $numeric. Bump the version first (see docs/RELEASE_PROCESS.md)."; exit 1
+          fi
+          sel() { [[ "$platforms" == all || "$platforms" == "$1" ]] && echo true || echo false; }
+          {
+            echo "version=$version"; echo "numeric=$numeric"; echo "tag=v$version"; echo "sha=$GITHUB_SHA"
+            echo "platforms=$platforms"
+            echo "windows=$(sel windows)"; echo "macos=$(sel macos)"; echo "linux=$(sel linux)"
+            echo "validate=$validate"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release $version ($platforms) from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    name: gate (ci.yml green for this commit)
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require a successful ci.yml run for the exact commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100" \
+                   --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "-") \(.event)"')"
+          echo "ci.yml runs for $SHA:"; echo "${runs:-<none>}"
+          if grep -qE '^[0-9]+ completed success ' <<<"$runs"; then
+            echo "Gate passed: ci.yml succeeded for $SHA."
+          else
+            echo "::error::No successful ci.yml run for commit $SHA. Wait for CI to finish (or fix it) and re-run; tests are not re-run here."
+            exit 1
+          fi
+
+  package-windows:
+    name: package windows-x64
+    needs: [prepare, gate]
+    if: needs.prepare.outputs.windows == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      NUMERIC: ${{ needs.prepare.outputs.numeric }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: ./.github/actions/setup-build
+        with:
+          cache-key: release-windows
+      - name: Configure
+        shell: bash
+        run: shared/scripts/ci_configure.sh build
+      - name: Build Standalone, VST3, CLAP
+        shell: bash
+        run: cmake --build build --target CrowdMike_Standalone CrowdMike_VST3 CrowdMike_CLAP --parallel 4
+      - name: Stage and zip
+        shell: bash
+        run: shared/scripts/package_beta.sh windows-x64 "$VERSION" build dist
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$env:VERSION" "/DAppVersionNumeric=${env:NUMERIC}.0" "/DStageDir=$PWD\dist\stage" "/O$PWD\dist" installer\CrowdMike.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Remove-Item -Recurse -Force dist\stage
+          Get-ChildItem dist | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows
+          path: |
+            dist/*-Setup.exe
+            dist/*-portable.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  package-macos:
+    name: package ${{ matrix.id }}
+    needs: [prepare, gate]
+    if: needs.prepare.outputs.macos == 'true'
+    runs-on: macos-14
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: macos-arm64, arch: arm64,  target: "11.0" }
+          - { id: macos-x64,   arch: x86_64, target: "10.15" }   # cross-compiled on Apple Silicon
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: ./.github/actions/setup-build
+        with:
+          cache-key: release-${{ matrix.id }}
+      - name: Configure
+        shell: bash
+        run: |
+          shared/scripts/ci_configure.sh build \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${{ matrix.target }}"
+      - name: Build Standalone, VST3, CLAP
+        shell: bash
+        run: cmake --build build --target CrowdMike_Standalone CrowdMike_VST3 CrowdMike_CLAP --parallel 4
+      - name: Stage, ad-hoc codesign and zip
+        shell: bash
+        run: shared/scripts/package_beta.sh "${{ matrix.id }}" "$VERSION" build dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.id }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  package-linux:
+    name: package linux-x64
+    needs: [prepare, gate]
+    if: needs.prepare.outputs.linux == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: ./.github/actions/setup-build
+        with:
+          cache-key: release-linux
+      - name: Configure
+        shell: bash
+        run: shared/scripts/ci_configure.sh build
+      - name: Build Standalone, VST3, CLAP
+        shell: bash
+        run: cmake --build build --target CrowdMike_Standalone CrowdMike_VST3 CrowdMike_CLAP --parallel 4
+      - name: Stage and archive
+        shell: bash
+        run: shared/scripts/package_beta.sh linux-x64 "$VERSION" build dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  validate:
+    name: validate (pluginval, clap-validator)
+    needs: [prepare, package-linux]
+    if: needs.prepare.outputs.validate == 'true' && needs.package-linux.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Install runtime libraries and xvfb
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libasound2t64 libfreetype6 libfontconfig1 libx11-6 libxext6 libxcursor1 libxinerama1 libxrandr2 libxrender1 libgl1 libcurl4t64 || \
+          sudo apt-get install -y --no-install-recommends xvfb libasound2 libfreetype6 libfontconfig1 libx11-6 libxext6 libxcursor1 libxinerama1 libxrandr2 libxrender1 libgl1 libcurl4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-linux
+          path: pkg
+      - name: Unpack
+        shell: bash
+        run: |
+          mkdir -p unpacked tools
+          tar -xzf pkg/*.tar.gz -C unpacked
+          echo "PKG=$(echo "$PWD"/unpacked/CrowdMike-*)" >> "$GITHUB_ENV"
+      - name: Fetch validators (latest upstream releases)
+        shell: bash
+        run: |
+          gh release download --repo Tracktion/pluginval --pattern 'pluginval_Linux.zip' --dir tools
+          unzip -q tools/pluginval_Linux.zip -d tools/pluginval
+          gh release download --repo free-audio/clap-validator --pattern '*ubuntu*' --dir tools
+          mkdir -p tools/clap-validator && tar -xzf tools/clap-validator-*ubuntu*.tar.gz -C tools/clap-validator
+          chmod +x tools/pluginval/pluginval
+          chmod +x "$(find tools/clap-validator -type f -name clap-validator | head -n1)"
+      - name: pluginval strictness 5 (VST3)
+        id: pluginval
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p logs
+          xvfb-run -a tools/pluginval/pluginval --strictness-level 5 --validate-in-process \
+            --output-dir logs "$PKG/CrowdMike.vst3" 2>&1 | tee logs/pluginval.txt
+          exit "${PIPESTATUS[0]}"
+      - name: clap-validator (CLAP)
+        id: clapval
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p logs
+          bin="$(find tools/clap-validator -type f -name clap-validator | head -n1)"
+          xvfb-run -a "$bin" validate "$PKG/CrowdMike.clap" 2>&1 | tee logs/clap-validator.txt
+          exit "${PIPESTATUS[0]}"
+      - name: Summarise (informational)
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Plug-in validators for $VERSION (informational, not blocking)"
+            echo "- pluginval strictness 5 (VST3): ${{ steps.pluginval.outcome }}"
+            echo "- clap-validator (CLAP): ${{ steps.clapval.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validator-logs
+          path: logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    name: publish pre-release
+    needs: [prepare, gate, package-windows, package-macos, package-linux, validate]
+    # Validators are informational: only gate and the package jobs decide whether we publish.
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.package-windows.result != 'failure' && needs.package-macos.result != 'failure' && needs.package-linux.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+      PLATFORMS: ${{ needs.prepare.outputs.platforms }}
+      REPO: ${{ github.repository }}
+      VALIDATED: ${{ needs.prepare.outputs.validate == 'true' && needs.prepare.outputs.linux == 'true' && needs.validate.result != 'skipped' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: dist
+          merge-multiple: true
+      - name: Reconcile with an existing release of the same version
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l dist || true
+          shopt -s nullglob
+          new=(dist/*)
+          [[ ${#new[@]} -gt 0 ]] || { echo "::error::No packages were produced."; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            existing="$(gh api "repos/$REPO/commits/$TAG" --jq .sha 2>/dev/null || true)"
+            if [[ "$existing" != "$SHA" ]]; then
+              if [[ "$PLATFORMS" == all ]]; then
+                echo "Release $TAG was built from $existing; replacing it entirely with $SHA."
+                gh release delete "$TAG" --yes --cleanup-tag
+              else
+                echo "::error::Release $TAG was built from ${existing:-an unknown commit}, not $SHA. A single-platform re-run must use the same commit; re-run with platforms=all to rebuild everything."
+                exit 1
+              fi
+            else
+              echo "Keeping assets of other platforms from the existing $TAG release."
+              mkdir -p prev
+              gh release download "$TAG" --dir prev --pattern '*' || true
+              for f in prev/*; do
+                b="$(basename "$f")"
+                [[ "$b" == SHA256SUMS ]] && continue
+                [[ -e "dist/$b" ]] || cp "$f" "dist/$b"
+              done
+            fi
+          fi
+          ls -l dist
+      - name: Checksums and notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS && cat SHA256SUMS)
+          prev_tag="$(git tag --list 'v*' --sort=-creatordate | grep -vx "$TAG" | head -n1 || true)"
+          flags=()
+          [[ "$VALIDATED" == true ]] && flags+=(--validators-ran)
+          python3 shared/scripts/make_beta_notes.py --version "$VERSION" --sha "$SHA" --assets-dir dist \
+            --repo "$REPO" --run-url "$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID" \
+            ${prev_tag:+--since "$prev_tag"} "${flags[@]}" > notes.md
+          cat notes.md
+      - name: Create or update the pre-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="CrowdMike $VERSION (beta)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file notes.md --prerelease --latest=false
+          else
+            gh release create "$TAG" --target "$SHA" --title "$title" --notes-file notes.md --prerelease --latest=false
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          gh release view "$TAG" --json url,isPrerelease,assets --jq '"\(.url) prerelease=\(.isPrerelease) assets=\(.assets|length)"' | tee -a "$GITHUB_STEP_SUMMARY"

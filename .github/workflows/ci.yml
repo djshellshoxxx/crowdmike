@@ -1,0 +1,59 @@
+name: ci
+
+# Fast correctness gate: builds and runs only the unit/engine/recording test executables.
+# No plug-in packaging happens here (see release-beta.yml) and the long soak tests are excluded (see nightly.yml).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux,   os: ubuntu-latest }
+          - { name: macos,   os: macos-14 }
+          - { name: windows, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up build tools and caches
+        uses: ./.github/actions/setup-build
+        with:
+          cache-key: ci-${{ matrix.name }}
+
+      - name: Configure
+        shell: bash
+        run: shared/scripts/ci_configure.sh build
+
+      - name: Build test executables
+        shell: bash
+        run: cmake --build build --target crowdmike_dsp_tests crowdmike_recording_tests crowdmike_tests --parallel 4
+
+      - name: Run tests (soak excluded)
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a ctest --test-dir build -C Release -LE soak --output-on-failure --timeout 900
+          else
+            ctest --test-dir build -C Release -LE soak --output-on-failure --timeout 900
+          fi
+
+      - name: ccache statistics
+        if: always()
+        shell: bash
+        run: ccache --show-stats || true

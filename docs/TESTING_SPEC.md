@@ -154,3 +154,33 @@ Verify:
 ## 11. Regression rule
 
 Every fixed DSP/routing/state bug receives a regression test whenever feasible.
+
+## 12. CI layers and soak tests
+
+| Layer | Where | Runs | Contents |
+|---|---|---|---|
+| Fast gate | `ci.yml` | every PR and push to `main` | `crowdmike_dsp_tests`, `crowdmike_recording_tests`, `crowdmike_tests` via `ctest -LE soak` on Linux, macOS (arm64), Windows |
+| Packaging | `release-beta.yml` | manual / `beta-*` tag | compiles and packages plug-ins only; requires a green `ci.yml` for the commit; optional pluginval (strictness 5) and clap-validator on Linux, informational |
+| Soak | `nightly.yml` | nightly + manual | `crowdmike_soak_tests`, ctest label `soak` |
+
+Soak tests live in `tests/soak/*.cpp` (CMake target `crowdmike_soak_tests`, `EXCLUDE_FROM_ALL`, same sources as
+`crowdmike_tests`; the executable replaces global `operator new/delete` to count allocations). Locally:
+
+```
+cmake --build build --target crowdmike_soak_tests
+ctest --test-dir build -L soak --output-on-failure
+```
+
+Durations are audio-time seconds and can be shortened with environment variables for local runs:
+`CROWDMIKE_SOAK_STRESS_SECONDS` (default 120), `CROWDMIKE_SOAK_LONG_SECONDS` (default 600),
+`CROWDMIKE_SOAK_DEVICE_CYCLES` (default 300), `CROWDMIKE_SOAK_REC_SECONDS` (default 300).
+
+| ctest name | Test | Assertions |
+|---|---|---|
+| `Soak_Stress` | `Soak_Stress_16x16_AllFx_48k` / `_96k`: 16 in / 16 out, all five FX sends open on every input and group, input processing and master width on, block sizes cycling 1..2048, parameter automation twice per audio-second, FX triggers | all outputs finite, peak < 4.0, zero audio-thread heap allocations after a 2 s warm-up, faster than real time, 16/16 channels active |
+| `Soak_LongRun` | `Soak_LongRun_NoMemoryGrowth`: >= 10 minutes of audio at 48 kHz, 16x16, all FX, scene recalls every 30 s | finite output, zero audio-thread allocations, outstanding heap allocations grow <= 512 and resident set <= 48 MiB between the first and last sample after a 60 s warm-up (RSS on Linux/macOS; Windows uses allocation counters only) |
+| `Soak_DeviceDisconnect` | `Soak_DeviceDisconnectReconnectCycles`: 300 stop / re-`prepareToPlay` cycles through mixed rates (44.1-192 kHz), block sizes (64-2048) and layouts (1x2 to 16x16) with state save/restore each cycle | finite output, zero audio-thread allocations, no engine objects accumulating across cycles |
+| `Soak_Recorder` | `Soak_Recorder_DiskFullRepeatedly`: 8-track take for 5 minutes of audio on a destination whose files repeatedly hit "disk full", operator `splitFile()` recovery | errors detected and reported, audio side sees zero dropouts, recorder memory (`getAllocatedBytes`) unchanged, recorder usable on a healthy disk afterwards |
+
+Real device removal is simulated at the engine boundary (stream stop, new layout/rate, `prepareToPlay`); it does not
+exercise OS audio drivers. These tests must never be added to the `ci.yml` selection.

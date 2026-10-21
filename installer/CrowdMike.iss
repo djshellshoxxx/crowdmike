@@ -1,7 +1,10 @@
-; Inno Setup script for the CrowdMike Windows installer (built by .github/workflows/build.yml).
-; ISCC /DAppVersion=0.2.0 /DStageDir=<folder containing CrowdMike.exe, CrowdMike.vst3, CrowdMike.clap> installer\CrowdMike.iss
+; Inno Setup script for the CrowdMike Windows installer (built by .github/workflows/release-beta.yml).
+; ISCC /DAppVersion=0.3.0-beta.1 /DAppVersionNumeric=0.3.0.0 /DStageDir=<folder containing CrowdMike.exe, CrowdMike.vst3, CrowdMike.clap> /O<outdir> installer\CrowdMike.iss
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.3.0"
+#endif
+#ifndef AppVersionNumeric
+  #define AppVersionNumeric "0.3.0.0"
 #endif
 #ifndef StageDir
   #define StageDir "..\stage"
@@ -11,6 +14,7 @@
 AppId={{6B0E8E52-3F1B-4D55-A8C6-0C3C4D2B1C77}
 AppName=CrowdMike
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersionNumeric}
 AppPublisher=Circuit Drift Labs
 DefaultDirName={autopf}\CrowdMike
 DefaultGroupName=CrowdMike

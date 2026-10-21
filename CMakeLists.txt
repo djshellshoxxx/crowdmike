@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.22)
 cmake_policy(SET CMP0091 NEW)
-project(CrowdMike VERSION 0.2.0 LANGUAGES C CXX)
+# macOS deployment target (must precede project()). Release jobs pass it explicitly; this is the local default:
+# 11.0 for arm64 / universal builds, 10.15 for Intel-only builds.
+if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND NOT DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
+    if("${CMAKE_OSX_ARCHITECTURES}" STREQUAL "x86_64")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
+    else()
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+    endif()
+endif()
+project(CrowdMike VERSION 0.3.0 LANGUAGES C CXX)
 # Static MSVC runtime so the Windows build runs without the Visual C++ redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -111,3 +120,25 @@ target_include_directories(crowdmike_recording_tests PRIVATE Source tests)
 target_compile_definitions(crowdmike_recording_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(crowdmike_recording_tests PRIVATE juce::juce_dsp juce::juce_audio_formats juce::juce_events)
 add_test(NAME crowdmike_recording_tests COMMAND crowdmike_recording_tests)
+
+# Nightly soak / stress tests (tests/soak, ctest label "soak"). Same sources as crowdmike_tests, but not part of
+# the default build and excluded from ci.yml (`ctest -LE soak`); nightly.yml builds and runs them.
+# Durations scale with CROWDMIKE_SOAK_* environment variables (docs/TESTING_SPEC.md section 12).
+file(GLOB_RECURSE CM_SOAK_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/soak/*.cpp)
+add_executable(crowdmike_soak_tests EXCLUDE_FROM_ALL
+    tests/TestMain.cpp
+    ${CM_SOAK_TEST_SOURCES}
+    ${CM_DSP_SOURCES}
+    ${CM_APP_SOURCES}
+)
+target_include_directories(crowdmike_soak_tests PRIVATE Source tests tests/soak)
+target_compile_definitions(crowdmike_soak_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(crowdmike_soak_tests PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_osc
+)
+foreach(soak_case IN ITEMS Soak_Stress Soak_LongRun Soak_DeviceDisconnect Soak_Recorder)
+    add_test(NAME ${soak_case} COMMAND crowdmike_soak_tests ${soak_case})
+    set_tests_properties(${soak_case} PROPERTIES LABELS soak TIMEOUT 3000)
+endforeach()

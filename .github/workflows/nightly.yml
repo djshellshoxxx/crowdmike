@@ -1,0 +1,76 @@
+name: nightly
+
+# Long-running soak/stress tests (ctest label "soak", sources in tests/soak). Never part of ci.yml.
+# See docs/TESTING_SPEC.md section 12.
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      long_seconds:
+        description: "Audio-time seconds for the long memory-growth run (default 600 = 10 minutes)"
+        required: false
+        default: "600"
+        type: string
+      stress_seconds:
+        description: "Audio-time seconds per max-channel stress run"
+        required: false
+        default: "120"
+        type: string
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: soak (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux,   os: ubuntu-latest }
+          - { name: macos,   os: macos-14 }
+          - { name: windows, os: windows-latest }
+    env:
+      CROWDMIKE_SOAK_LONG_SECONDS: ${{ inputs.long_seconds || '600' }}
+      CROWDMIKE_SOAK_STRESS_SECONDS: ${{ inputs.stress_seconds || '120' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up build tools and caches
+        uses: ./.github/actions/setup-build
+        with:
+          cache-key: nightly-${{ matrix.name }}
+
+      - name: Configure
+        shell: bash
+        run: shared/scripts/ci_configure.sh build
+
+      - name: Build soak tests
+        shell: bash
+        run: cmake --build build --target crowdmike_soak_tests --parallel 4
+
+      - name: Run soak tests
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a ctest --test-dir build -C Release -L soak --output-on-failure --timeout 3000
+          else
+            ctest --test-dir build -C Release -L soak --output-on-failure --timeout 3000
+          fi
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-log-${{ matrix.name }}
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 14

@@ -2,7 +2,7 @@
 #include "Routing/RoutingState.h"
 
 #ifndef CROWDMIKE_VERSION_STRING
- #define CROWDMIKE_VERSION_STRING "0.2.0"
+ #define CROWDMIKE_VERSION_STRING "0.3.0"
 #endif
 
 namespace crowdmike::StateIO {
