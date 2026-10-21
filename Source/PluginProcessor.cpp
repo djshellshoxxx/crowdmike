@@ -21,13 +21,16 @@ CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
     bank.publishMacros(show.macros);
     routing.resetDirectDefault(2, 2);
     engine.setServices({ &bank, &routing, &recorder, &playback, &soundcheck });
+    tempo.attachTracker(&engine.beatTracker());
     scenes.onRecallRamp = [this](float ms) { engine.setRecallRampMs(ms); };
     hub.actions.recordStart = [this] { startRecording(); };
     hub.actions.recordStop = [this] { stopRecording(); };
     hub.actions.recordToggle = [this] { if (isRecording()) stopRecording(); else startRecording(); };
     hub.actions.splitFile = [this] { recorder.splitFile(); };
     hub.actions.marker = [this](int type) { addMarker(type); };
-    hub.actions.clipTrigger = [this](int slot) { playback.trigger(slot); };
+    hub.actions.clipTrigger = [this](int slot) { triggerClip(slot); };
+    hub.actions.tempoTap = [this] { tempoTap(); };
+    hub.actions.tempoResync = [this] { tempoResync(); };
     hub.actions.clipStop = [this](int slot) { playback.stop(slot); };
     hub.actions.stopAllClips = [this] { playback.stopAll(); };
     if (juce::MessageManager::getInstanceWithoutCreating() != nullptr) {
@@ -39,6 +42,7 @@ CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
 CrowdMikeAudioProcessor::~CrowdMikeAudioProcessor()
 {
     stopTimer();
+    if (autoAnalysisHeld) { beatAnalysis.release(); autoAnalysisHeld = false; }
     osc.stop();
     recorder.shutdown();
 }
@@ -61,6 +65,7 @@ void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     preparedSampleRate = sampleRate;
     preparedBlockSize = samplesPerBlock;
     engine.prepare(sampleRate, juce::jmax(1, samplesPerBlock), ins, outs);
+    tempo.prepare(sampleRate, juce::jmax(1, samplesPerBlock));
     prepareRecordingForLayout(sampleRate, samplesPerBlock);
     setLatencySamples(engine.getLatencySamples());
 }
@@ -88,18 +93,39 @@ bool CrowdMikeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts)
 void CrowdMikeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    if (acceptsMidi() && !midi.isEmpty())
+    if (acceptsMidi() && !midi.isEmpty()) {
+        for (const auto meta : midi) {   // MIDI beat clock + transport (system realtime) feeds the TempoHub
+            const auto msg = meta.getMessage();
+            if (msg.isMidiClock()) tempo.midiClockTick(meta.samplePosition);
+            else if (msg.isMidiStart()) tempo.midiStart(meta.samplePosition);
+            else if (msg.isMidiContinue()) tempo.midiContinue(meta.samplePosition);
+            else if (msg.isMidiStop()) tempo.midiStop(meta.samplePosition);
+        }
         hub.queueMidiFromAudioThread(midi);
+    }
     midi.clear();
 
-    BlockInfo info;
+    HostTempoInfo host;
     if (auto* head = getPlayHead()) {
         if (auto pos = head->getPosition()) {
-            if (auto bpm = pos->getBpm()) { info.bpm = *bpm; info.hasTempo = true; }
-            if (auto ppq = pos->getPpqPosition()) info.ppqPosition = *ppq;
-            info.playing = pos->getIsPlaying();
+            if (auto bpm = pos->getBpm()) { host.bpm = *bpm; host.hasBpm = true; }
+            if (auto ppq = pos->getPpqPosition()) { host.ppq = *ppq; host.hasPpq = true; }
+            host.playing = pos->getIsPlaying();
         }
     }
+    namespace T = params::TempoP;
+    TempoParams tp;
+    tp.source = juce::roundToInt(bank.effectiveAt(ParamBank::index(Mod::Tempo, 0, T::Source)));
+    tp.manualBpm = bank.effectiveAt(ParamBank::index(Mod::Tempo, 0, T::ManualBpm));
+    tp.nudgeBpm = bank.effectiveAt(ParamBank::index(Mod::Tempo, 0, T::Nudge));
+    tp.barBeats = params::kBarBeatsTable[juce::jlimit(0, 5, juce::roundToInt(bank.effectiveAt(ParamBank::index(Mod::Tempo, 0, T::BarBeats))))];
+    const auto ts = tempo.process(buffer.getNumSamples(), tp, host);
+
+    BlockInfo info;
+    info.bpm = ts.bpm;
+    info.hasTempo = ts.hasTempo;
+    info.ppqPosition = ts.ppq;
+    info.playing = ts.playing;
     engine.process(buffer, info);
 }
 
@@ -199,6 +225,18 @@ juce::String CrowdMikeAudioProcessor::getCurrentSceneName() const
 }
 
 void CrowdMikeAudioProcessor::recallScene(int slot) { scenes.recall(slot, show.ui.recallScope); }
+
+void CrowdMikeAudioProcessor::tempoTap() { tempo.tap(juce::Time::getMillisecondCounterHiRes() * 0.001); }
+void CrowdMikeAudioProcessor::tempoResync() { tempo.resyncDownbeat(); }
+
+bool CrowdMikeAudioProcessor::triggerClip(int slot)
+{
+    if (slot < 0 || slot >= rec::PlaybackEngine::kMaxClips) return false;
+    const int mode = juce::roundToInt(bank.rawAt(ParamBank::index(Mod::Tempo, 0, params::TempoP::Quantise)));
+    if (mode <= 0) return playback.trigger(slot);       // Off: exactly the legacy path
+    engine.requestClipTrigger(slot);
+    return true;
+}
 
 // ---------------------------------------------------------------- clip deck / bed / soundcheck persistence
 // ShowModel::playback = <Playback> <Clip slot file name gainDb ... hotkey/>* <Bed .../> <Soundcheck session loopStart .../> </Playback>
@@ -457,8 +495,17 @@ void CrowdMikeAudioProcessor::timerCallback()
         return risen;
     };
     namespace G = params::GlobalP;
-    if (edge(ParamBank::index(Mod::Global, 0, G::SceneNext), lastNextPressed)) scenes.next();
-    if (edge(ParamBank::index(Mod::Global, 0, G::ScenePrev), lastPrevPressed)) scenes.previous();
+    if (edge(ParamBank::index(Mod::Global, 0, G::SceneNext), lastNextPressed)) scenes.next(show.ui.recallScope);
+    if (edge(ParamBank::index(Mod::Global, 0, G::ScenePrev), lastPrevPressed)) scenes.previous(show.ui.recallScope);
+    if (edge(ParamBank::index(Mod::Tempo, 0, params::TempoP::Tap), lastTapPressed)) tempoTap();
+    if (edge(ParamBank::index(Mod::Tempo, 0, params::TempoP::Resync), lastResyncPressed)) tempoResync();
+    {   // the Auto tempo analyser only runs while tempo.source == Auto
+        const bool wantAuto = juce::roundToInt(bank.rawAt(ParamBank::index(Mod::Tempo, 0, params::TempoP::Source))) == 4;
+        if (wantAuto != autoAnalysisHeld) {
+            if (wantAuto) beatAnalysis.acquire(); else beatAnalysis.release();
+            autoAnalysisHeld = wantAuto;
+        }
+    }
     if (edge(ParamBank::index(Mod::Global, 0, G::RecordAll), lastRecordAll)) {
         if (isRecording()) stopRecording(); else startRecording();
     }

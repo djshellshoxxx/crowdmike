@@ -30,6 +30,7 @@ struct HubActions {
     std::function<void(int markerType)> marker;
     std::function<void(int)> clipTrigger, clipStop;
     std::function<void()> stopAllClips;
+    std::function<void()> tempoTap, tempoResync;    // Beat Sync (TempoHub owned by the processor)
 };
 
 class ControlHub final : private juce::Timer {
@@ -54,6 +55,12 @@ public:
     bool setParamNormalised(int globalIndex, float norm);
     bool pulseParam(int globalIndex, int milliseconds = 60);
     void setPanic(bool engaged);
+
+    // Scene recall scope used by MIDI / OSC / host-button recalls (ShowModel::ui.recallScope, SceneScope bits).
+    // Returns false (unchanged) for a mask with no valid bit.
+    unsigned getRecallScope() const noexcept { return show.ui.recallScope; }
+    bool setRecallScope(unsigned mask);
+    std::function<void()> onScopeChanged;     // message thread; lets views refresh their scope toggles
 
     // MIDI learn
     void startLearn(const LearnRequest&);

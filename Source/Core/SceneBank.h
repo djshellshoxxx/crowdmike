@@ -33,8 +33,8 @@ public:
     void capture(int slot, const juce::String& name = {});
     // Message thread only. `rampMs < 0` uses show.ui.recallRampMs. Returns false for an empty/invalid slot.
     bool recall(int slot, unsigned scope = ScopeAll, float rampMs = -1.0f);
-    bool next();       // wraps to the next used scene
-    bool previous();
+    bool next(unsigned scope = ScopeAll);       // wraps to the next used scene; `scope` as for recall()
+    bool previous(unsigned scope = ScopeAll);
     int current() const noexcept { return currentSlot; }
     int countUsed() const;
     Scene& at(int slot) { return scenes[static_cast<size_t>(slot)]; }

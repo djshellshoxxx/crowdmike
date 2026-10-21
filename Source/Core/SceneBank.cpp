@@ -19,6 +19,8 @@ bool SceneBank::isTransientParam(int idx) {
         add(Mod::FxEcho, 0, params::EchoP::Trigger);
         add(Mod::FxEcho, 0, params::EchoP::TailKill);
         add(Mod::FxReverse, 0, params::ReverseP::Trigger);
+        add(Mod::Tempo, 0, params::TempoP::Tap);
+        add(Mod::Tempo, 0, params::TempoP::Resync);
         return v;
     }();
     return std::find(transient.begin(), transient.end(), idx) != transient.end();
@@ -115,20 +117,20 @@ int SceneBank::countUsed() const {
     return c;
 }
 
-bool SceneBank::next() {
+bool SceneBank::next(unsigned scope) {
     if (countUsed() == 0) return false;
     for (int step = 1; step <= kNumScenes; ++step) {
         const int slot = (juce::jmax(currentSlot, -1) + step) % kNumScenes;
-        if (scenes[static_cast<size_t>(slot)].used) return recall(slot);
+        if (scenes[static_cast<size_t>(slot)].used) return recall(slot, scope);
     }
     return false;
 }
 
-bool SceneBank::previous() {
+bool SceneBank::previous(unsigned scope) {
     if (countUsed() == 0) return false;
     for (int step = 1; step <= kNumScenes; ++step) {
         const int slot = ((juce::jmax(currentSlot, 0) - step) % kNumScenes + kNumScenes) % kNumScenes;
-        if (scenes[static_cast<size_t>(slot)].used) return recall(slot);
+        if (scenes[static_cast<size_t>(slot)].used) return recall(slot, scope);
     }
     return false;
 }

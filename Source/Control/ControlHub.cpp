@@ -62,6 +62,16 @@ void ControlHub::setPanic(bool engaged) {
     setParamNormalised(ParamBank::index(Mod::Global, 0, params::GlobalP::Panic), engaged ? 1.0f : 0.0f);
 }
 
+bool ControlHub::setRecallScope(unsigned mask) {
+    mask &= ScopeAll;
+    if (mask == 0) return false;
+    if (show.ui.recallScope != mask) {
+        show.ui.recallScope = mask;
+        if (onScopeChanged) onScopeChanged();
+    }
+    return true;
+}
+
 void ControlHub::startLearn(const LearnRequest& r) { learnRequest = r; learning.store(true); }
 
 int ControlHub::removeBindingsFor(BindTarget t, int idx) {
@@ -140,6 +150,9 @@ void ControlHub::applyBinding(const ControlBinding& b, const MidiEvent& e) {
                 case BindTarget::ClipStop: a.kind = OscAction::Kind::ClipStop; break;
                 case BindTarget::StopAllClips: a.kind = OscAction::Kind::StopAllClips; break;
                 case BindTarget::Panic: a.kind = OscAction::Kind::Panic; a.hasValue = true; a.value = 1.0f; break;
+                case BindTarget::TempoTap: a.kind = OscAction::Kind::TempoTap; break;
+                case BindTarget::TempoResync: a.kind = OscAction::Kind::TempoResync; break;
+                case BindTarget::SceneScopeToggle: a.kind = OscAction::Kind::SceneScopeBit; break;   // no value => toggle
                 default: return;
             }
             a.index = b.targetIndex;
@@ -158,9 +171,21 @@ void ControlHub::execute(const OscAction& a) {
         case K::SetParam: if (a.hasValue) setParamActual(a.index, a.value); break;
         case K::SetParamNorm: if (a.hasValue) setParamNormalised(a.index, a.value); break;
         case K::Pulse: pulseParam(a.index); break;
-        case K::SceneSelect: scenes.recall(a.index); break;
-        case K::SceneNext: scenes.next(); break;
-        case K::ScenePrev: scenes.previous(); break;
+        // MIDI / OSC recalls honour the operator's recall scope exactly like the GUI (CONTROL_SPEC section 3).
+        case K::SceneSelect: scenes.recall(a.index, show.ui.recallScope); break;
+        case K::SceneNext: scenes.next(show.ui.recallScope); break;
+        case K::ScenePrev: scenes.previous(show.ui.recallScope); break;
+        case K::SceneScopeSet: setRecallScope(static_cast<unsigned>(std::max(0, a.index))); break;
+        case K::SceneScopeBit: {
+            if (a.index < 0) break;
+            if (a.index >= 8) { setRecallScope(ScopeAll); break; }
+            const unsigned bit = 1u << static_cast<unsigned>(a.index);
+            const bool on = a.hasValue ? a.value >= 0.5f : (show.ui.recallScope & bit) == 0;
+            setRecallScope(on ? (show.ui.recallScope | bit) : (show.ui.recallScope & ~bit));
+            break;
+        }
+        case K::TempoTap: if (actions.tempoTap) actions.tempoTap(); break;
+        case K::TempoResync: if (actions.tempoResync) actions.tempoResync(); break;
         case K::RecordStart: if (actions.recordStart) actions.recordStart(); break;
         case K::RecordStop: if (actions.recordStop) actions.recordStop(); break;
         case K::RecordToggle: if (actions.recordToggle) actions.recordToggle(); break;

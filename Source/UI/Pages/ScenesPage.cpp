@@ -181,8 +181,8 @@ public:
         };
         button(store, "Store", "Capture the current show state into the selected slot (asks before overwriting)", "scenes.capture", [this] { storeSelected(); });
         button(recallB, "Recall", "Recall the selected scene with the current scope and ramp", "scenes.recall", [this] { recallSelected(); });
-        button(prev, "< Prev", "Recall the previous used scene (Ctrl+Left)", "scenes.prev", [this] { proc.getScenes().previous(); afterRecall(); });
-        button(next, "Next >", "Recall the next used scene (Ctrl+Right)", "scenes.next", [this] { proc.getScenes().next(); afterRecall(); });
+        button(prev, "< Prev", "Recall the previous used scene (Ctrl+Left)", "scenes.prev", [this] { proc.getScenes().previous(proc.getShow().ui.recallScope); afterRecall(); });
+        button(next, "Next >", "Recall the next used scene (Ctrl+Right)", "scenes.next", [this] { proc.getScenes().next(proc.getShow().ui.recallScope); afterRecall(); });
         button(duplicate, "Duplicate", "Copy the selected scene into the next empty slot", "scenes.duplicate", [this] { duplicateSelected(); });
         button(clearB, "Clear...", "Empty the selected slot (asks for confirmation)", "scenes.clear", [this] { clearSelected(false); });
         button(learn, "MIDI learn", "MIDI learn: the next note / CC recalls this scene", "scenes.learn", [this] {

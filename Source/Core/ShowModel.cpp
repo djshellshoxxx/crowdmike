@@ -184,7 +184,7 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         b.type = static_cast<MidiMsgType>(juce::jlimit(0, 2, static_cast<int>(bt["type"])));
         b.channel = juce::jlimit(0, 16, static_cast<int>(bt["channel"]));
         b.number = juce::jlimit(0, 127, static_cast<int>(bt["number"]));
-        b.target = static_cast<BindTarget>(juce::jlimit(0, static_cast<int>(BindTarget::MacroValue), static_cast<int>(bt["target"])));
+        b.target = static_cast<BindTarget>(juce::jlimit(0, static_cast<int>(BindTarget::SceneScopeToggle), static_cast<int>(bt["target"])));
         b.targetIndex = bt["targetIndex"];
         if (b.target == BindTarget::Param) {
             b.targetIndex = ParamBank::indexForId(bt["targetParam"].toString());   // IDs are the stable key, not indices

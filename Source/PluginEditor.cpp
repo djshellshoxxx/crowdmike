@@ -114,8 +114,8 @@ bool CrowdMikeAudioProcessorEditor::keyPressed(const juce::KeyPress& key, juce::
     if (mods.isCommandDown() || mods.isCtrlDown()) {
         if (code == 'Z' || code == 'z') { if (mods.isShiftDown()) processor.getUndoManager().redo(); else processor.getUndoManager().undo(); return true; }
         if (code == 'Y' || code == 'y') { processor.getUndoManager().redo(); return true; }
-        if (code == juce::KeyPress::rightKey) { processor.getScenes().next(); return true; }
-        if (code == juce::KeyPress::leftKey) { processor.getScenes().previous(); return true; }
+        if (code == juce::KeyPress::rightKey) { processor.getScenes().next(processor.getShow().ui.recallScope); return true; }
+        if (code == juce::KeyPress::leftKey) { processor.getScenes().previous(processor.getShow().ui.recallScope); return true; }
         if (code >= '1' && code <= '9') { processor.recallScene(code - '1' + (mods.isShiftDown() ? 9 : 0)); return true; }
         if (code == 'R' || code == 'r') { processor.getHub().execute([] { OscAction a; a.kind = OscAction::Kind::RecordToggle; return a; }()); return true; }
         if (code == 'M' || code == 'm') { processor.addMarker(5); context.say("Marker added"); return true; }
@@ -124,7 +124,7 @@ bool CrowdMikeAudioProcessorEditor::keyPressed(const juce::KeyPress& key, juce::
     // Clip hotkeys (Playback page assignments, stored in ShowModel::playback); never while typing into a text field.
     if (dynamic_cast<juce::TextEditor*>(juce::Component::getCurrentlyFocusedComponent()) == nullptr) {
         if (const int slot = processor.findClipForHotkey(key.getTextDescription()); slot >= 0) {
-            processor.getPlayback().trigger(slot);
+            processor.triggerClip(slot);
             return true;
         }
     }

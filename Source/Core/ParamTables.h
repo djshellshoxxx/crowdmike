@@ -290,6 +290,21 @@ namespace WidthP { enum { On, Width, Decorr, HaasMs, MonoCompat, LfMonoHz, Count
 
 #define CM_MACRO_PARAMS(X) X(Value, F("", "Macro", 0.f, 1.f, 0.f))
 
+// ---------------------------------------------------------------- Tempo / Beat Sync ("tempo.") -- docs/BEAT_SYNC_SPEC.md
+// Appended after the macros so every earlier global index is unchanged. The Tap and Resync entries are momentary
+// buttons (never stored in scenes). Beats-per-bar choice index -> {4, 3, 2, 5, 6, 7}.
+#define CM_AUTO_SOURCES "Master|Input 1|Input 2|Input 3|Input 4|Input 5|Input 6|Input 7|Input 8|Input 9|Input 10|Input 11|Input 12|Input 13|Input 14|Input 15|Input 16"
+#define CM_TEMPO_PARAMS(X) \
+    X(Source, C("source", "Tempo Source", "Host|Tap|Manual|MIDI Clock|Auto", 0)) \
+    X(ManualBpm, F("manualBpm", "Manual BPM", 20.f, 300.f, 120.f, "BPM", 0.01f, 120.f)) \
+    X(Nudge, F("nudgeBpm", "Tempo Nudge", -10.f, 10.f, 0.f, "BPM", 0.01f)) \
+    X(Quantise, C("quantise", "Trigger Quantise", "Off|1/4|1/2|1 bar", 0)) \
+    X(AutoSource, C("autoSource", "Auto Tempo Input", CM_AUTO_SOURCES, 0)) \
+    X(BarBeats, C("barBeats", "Beats Per Bar", "4|3|2|5|6|7", 0)) \
+    X(Tap, B("tap", "Tap Tempo")) \
+    X(Resync, B("resync", "Resync Downbeat"))
+constexpr int kBarBeatsTable[6] = { 4, 3, 2, 5, 6, 7 };
+
 // ---------------------------------------------------------------- generate enums + tables
 #define CM_ENUM_ENTRY(e, d) e,
 #define CM_DEF_ENTRY(e, d) d,
@@ -308,6 +323,7 @@ CM_DEFINE_MODULE(EchoP, CM_FX_ECHO)
 CM_DEFINE_MODULE(TapeP, CM_FX_TAPE)
 CM_DEFINE_MODULE(ReverseP, CM_FX_REVERSE)
 CM_DEFINE_MODULE(NoiseP, CM_FX_NOISE)
+CM_DEFINE_MODULE(TempoP, CM_TEMPO_PARAMS)
 
 // Contiguous sub-blocks inside the larger tables (so DSP can be handed `base + offset`).
 // Verified against the tables in tests (ParamTablesTest).

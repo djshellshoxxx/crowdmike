@@ -288,6 +288,15 @@ bool PlaybackEngine::trigger(int slot, int offset) {
     return commands.push(c);
 }
 
+bool PlaybackEngine::triggerFromAudioThread(int slot, int offset) noexcept {
+    if ((unsigned) slot >= (unsigned) kMaxClips) return false;
+    Command c;
+    c.type = Command::Trigger;
+    c.slot = slot;
+    c.offset = std::max(0, offset);
+    return audioCommands.push(c);
+}
+
 bool PlaybackEngine::stop(int slot) {
     if ((unsigned) slot >= (unsigned) kMaxClips) return false;
     Command c;
@@ -627,6 +636,7 @@ void PlaybackEngine::process(float* const* dL, float* const* dR, int n, bool mut
     muted = mute;   // commands of this block see the current panic state
     Command c;
     while (commands.pop(c)) handleCommand(c, n);
+    while (audioCommands.pop(c)) handleCommand(c, n);
 
     if (mute && ! wasMuted)
         for (auto& slot : slots)

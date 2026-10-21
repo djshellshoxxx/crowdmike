@@ -5,6 +5,7 @@
 #include <memory>
 #include "Control/ControlHub.h"
 #include "Control/OscServer.h"
+#include "Control/TempoHub.h"
 #include "Core/ParamBank.h"
 #include "Core/SceneBank.h"
 #include "Core/ShowModel.h"
@@ -59,6 +60,12 @@ public:
     crowdmike::ControlHub& getHub() noexcept { return hub; }
     crowdmike::OscServer& getOsc() noexcept { return osc; }
     crowdmike::CrowdEngine& getEngine() noexcept { return engine; }
+    // ---- Beat Sync (docs/BEAT_SYNC_SPEC.md). Message thread.
+    crowdmike::TempoHub& getTempo() noexcept { return tempo; }
+    void tempoTap();              // tap-tempo button / MIDI / OSC / host button parameter
+    void tempoResync();           // "this is the downbeat"
+    // Clip trigger that honours the global trigger quantise (immediate when quantise is Off). Returns false when refused.
+    bool triggerClip(int slot);
     crowdmike::EngineMeters& getMeters() noexcept { return engine.meters; }
     crowdmike::rec::RecorderEngine& getRecorder() noexcept { return recorder; }
     crowdmike::rec::PlaybackEngine& getPlayback() noexcept { return playback; }
@@ -130,8 +137,11 @@ private:
     crowdmike::rec::PlaybackEngine playback;
     crowdmike::rec::SoundcheckPlayer soundcheck;
     crowdmike::HostServices* hostServices = nullptr;
+    crowdmike::TempoHub tempo;
     crowdmike::AnalysisThread analysis { [this] { engine.feedback().analyse(); } };   // after engine: stopped first
+    crowdmike::AnalysisThread beatAnalysis { [this] { engine.beatTracker().analyse(); } };   // Auto tempo worker (after engine)
     int riskTicks = 0;
+    bool autoAnalysisHeld = false, lastTapPressed = false, lastResyncPressed = false;
 
     std::atomic<int> activeInputChannels { 2 }, activeOutputChannels { 2 };
     std::array<float, crowdmike::kMaxInputs> inputPeakCache {};

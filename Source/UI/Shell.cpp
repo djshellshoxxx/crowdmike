@@ -30,8 +30,8 @@ StatusBar::StatusBar(EditorContext& c)
     for (auto* b : { &prevScene, &nextScene }) { addAndMakeVisible(*b); }
     prevScene.setTooltip("Previous scene (Ctrl+Left)");
     nextScene.setTooltip("Next scene (Ctrl+Right)");
-    prevScene.onClick = [this] { proc.getScenes().previous(); };
-    nextScene.onClick = [this] { proc.getScenes().next(); };
+    prevScene.onClick = [this] { proc.getScenes().previous(proc.getShow().ui.recallScope); };
+    nextScene.onClick = [this] { proc.getScenes().next(proc.getShow().ui.recallScope); };
     for (auto* b : { &deviceBadge, &recBadge, &xrunBadge, &modeBadge }) addAndMakeVisible(*b);
     panic.setColour(juce::ToggleButton::textColourId, palette().text);
     panic.setTooltip("Mute all crowd reinforcement outputs immediately. Recording continues. (F12)");

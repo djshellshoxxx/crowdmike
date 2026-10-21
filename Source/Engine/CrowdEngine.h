@@ -8,8 +8,10 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <vector>
 #include "Core/Limits.h"
 #include "Core/ParamBank.h"
+#include "DSP/BeatTracker.h"
 #include "DSP/ChannelDelay.h"
 #include "DSP/CorrelationMeter.h"
 #include "DSP/DspCommon.h"
@@ -18,6 +20,7 @@
 #include "DSP/FxContext.h"
 #include "DSP/LevelHistory.h"
 #include "DSP/RoutingMatrix.h"
+#include "DSP/TriggerQuantiser.h"
 #include "Engine/BusMatrix.h"
 #include "Engine/EngineBuffer.h"
 #include "Engine/EngineMeters.h"
@@ -66,6 +69,12 @@ public:
     // Maps recorder track -> tap id (TapMap). Message thread; read by the audio thread.
     void setTrackSource(int track, int tapId, int channels) noexcept;
 
+    // Beat Sync (docs/BEAT_SYNC_SPEC.md). Message thread: ask for a clip to start on the next grid line of the global
+    // quantise setting (immediately when quantise is Off / no usable tempo). Lock-free, drops when 16 are queued.
+    void requestClipTrigger(int slot) noexcept;
+    // Onset/tempo analyser for the Auto tempo source; fed from the audio thread while tempo.source == Auto.
+    dsp::BeatTracker& beatTracker() noexcept { return beat; }
+
     // Analysis objects for the GUI (thread-safe by their own contracts)
     dsp::FeedbackDetector& feedback() noexcept { return feedbackDetector; }
     dsp::LevelHistory& inputHistory(int i) noexcept { return inHistory[static_cast<size_t>(i)]; }
@@ -101,6 +110,16 @@ private:
     dsp::DensityFollower density;
     dsp::FeedbackDetector feedbackDetector;
     dsp::CorrelationMeter correlation;
+    // Beat Sync
+    dsp::BeatTracker beat;
+    std::vector<float> beatMono;
+    bool beatFeeding = false;
+    dsp::TriggerQuantiser echoQuant, reverseQuant, clipQuant;
+    bool prevEchoTrig = false, prevReverseTrig = false, echoSuppress = false, reverseSuppress = false;
+    juce::AbstractFifo clipFifo { 16 };
+    std::array<int, 16> clipRing {};
+    std::array<int, 16> clipPending {};
+    int clipPendingCount = 0;
     std::array<dsp::LevelHistory, kMaxInputs> inHistory;
     std::array<dsp::LevelHistory, kMaxGroups> groupHistoryBuf;
     dsp::LevelHistory masterHistoryBuf;
