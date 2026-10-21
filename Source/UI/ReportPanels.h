@@ -43,7 +43,7 @@ private:
 
     EditorContext& ctx;
     CrowdMikeAudioProcessor& proc;
-    juce::TextButton openButton, exportButton, autoExport, autoMarkers;
+    juce::TextButton openButton, exportButton, autoExport, autoMarkers, tracking;
     juce::Label sensLabel, status;
     juce::Slider sensitivity;
     bool active = false;

@@ -9,7 +9,7 @@ namespace {
 class SettingsPage final : public Page {
 public:
     explicit SettingsPage(EditorContext& c)
-        : Page(c), audio(c), midi(c), osc(c), uiPrefs(c), tempoSec(c), files(c), keys(c) {
+        : Page(c), audio(c), midi(c), osc(c), uiPrefs(c), tempoSec(c), globalSec(c), files(c), keys(c) {
         for (auto* s : sections()) {
             s->onLayoutChanged = [this] { layoutContent(); };
             content.addAndMakeVisible(s);
@@ -30,11 +30,12 @@ public:
     OscSettingsSection& oscSection() { return osc; }
     UiSettingsSection& uiSection() { return uiPrefs; }
     TempoSettingsSection& tempoSection() { return tempoSec; }
+    GlobalSettingsSection& globalSection() { return globalSec; }
 
 private:
     void showModelChanged() override { uiPrefs.refresh(); }
 
-    std::vector<SettingsSection*> sections() { return { &audio, &midi, &osc, &uiPrefs, &files, &keys }; }
+    std::vector<SettingsSection*> sections() { return { &audio, &midi, &osc, &uiPrefs, &tempoSec, &globalSec, &files, &keys }; }   // every section must be in this list: it parents them
 
     void layoutContent() {
         const int w = viewport.getWidth() - viewport.getScrollBarThickness();
@@ -42,7 +43,7 @@ private:
         const int gap = 8;
         const bool twoCols = w >= 1000;
         const int colW = twoCols ? (w - 3 * gap) / 2 : w - 2 * gap;
-        std::vector<SettingsSection*> left { &audio, &midi }, right { &osc, &uiPrefs, &tempoSec, &files, &keys };
+        std::vector<SettingsSection*> left { &audio, &midi }, right { &osc, &uiPrefs, &tempoSec, &globalSec, &files, &keys };
         if (!twoCols) { left = sections(); right.clear(); }
         const auto stack = [&](const std::vector<SettingsSection*>& list, int x) {
             int y = gap;
@@ -63,6 +64,7 @@ private:
     OscSettingsSection osc;
     UiSettingsSection uiPrefs;
     TempoSettingsSection tempoSec;
+    GlobalSettingsSection globalSec;
     ShowFilesSection files;
     ShortcutsSection keys;
     juce::Component content;

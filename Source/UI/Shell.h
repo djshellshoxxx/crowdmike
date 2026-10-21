@@ -40,7 +40,7 @@ private:
     juce::OwnedArray<juce::TextButton> buttons;
 };
 
-class PerformanceStrip final : public juce::Component, private EditorContext::Listener {
+class PerformanceStrip final : public juce::Component, private Tickable, private EditorContext::Listener {
 public:
     explicit PerformanceStrip(EditorContext&);
     ~PerformanceStrip() override;
@@ -48,6 +48,7 @@ public:
     void paint(juce::Graphics& g) override { g.fillAll(palette().panel); g.setColour(palette().panelEdge); g.drawHorizontalLine(0, 0.0f, static_cast<float>(getWidth())); }
 private:
     void showModelChanged() override;
+    void tick() override;      // record button follows the recorder state
     EditorContext& ctx;
     CrowdMikeAudioProcessor& proc;
     ParamSlider masterLevel;

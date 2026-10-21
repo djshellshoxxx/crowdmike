@@ -510,28 +510,74 @@ TempoSettingsSection::TempoSettingsSection(EditorContext& c) : SettingsSection(c
 TempoSettingsSection::~TempoSettingsSection() = default;
 void TempoSettingsSection::refresh() { impl->tick(); }
 
+namespace { int paramCellH(float scale) { return juce::roundToInt(40.0f * scale); } }   // label row + a full-height control
+
 int TempoSettingsSection::preferredHeight(int width) const {
     const int cols = width >= 640 ? 2 : 1;
     const int rows = (6 + cols - 1) / cols;
-    return kHeader + rowH() * (rows + 2) + 14;
+    return kHeader + paramCellH(scale()) * rows + rowH() * 2 + 14;
 }
 
 void TempoSettingsSection::resized() {
     auto r = getLocalBounds().reduced(10, 0);
     r.removeFromTop(kHeader);
     const int rh = rowH();
+    const int ch = paramCellH(scale());
     const int cols = getWidth() >= 640 ? 2 : 1;
     const int cw = r.getWidth() / cols;
     for (int i = 0; i < impl->cells.size(); ++i) {
         const int row = i / cols, col = i % cols;
-        impl->cells[i]->setBounds(r.getX() + col * cw, r.getY() + row * rh, cw - 8, rh);
+        impl->cells[i]->setBounds(r.getX() + col * cw, r.getY() + row * ch, cw - 8, ch);
     }
     const int rows = (impl->cells.size() + cols - 1) / cols;
-    r.removeFromTop(rows * rh);
+    r.removeFromTop(rows * ch);
     auto line = r.removeFromTop(rh).reduced(0, 2);
     resync.setBounds(line.removeFromLeft(160));
     line.removeFromLeft(10);
     info.setBounds(r.removeFromTop(rh));
+}
+
+// ================================================================= Safety / global
+struct GlobalSettingsSection::Impl {
+    explicit Impl(GlobalSettingsSection& o) {
+        using namespace params;
+        const auto mk = [&](int globalEnum, const char* label) {
+            cells.add(new ParamCell(o.proc, ParamBank::index(Mod::Global, 0, globalEnum), label));
+            o.addAndMakeVisible(cells.getLast());
+        };
+        mk(GlobalP::Rehearsal, "Rehearsal (no output)");
+        mk(GlobalP::UnlockLimiters, "Unlock output limiters");
+        mk(GlobalP::OutCeiling, "Limiter ceiling");
+        mk(GlobalP::OutLimRelease, "Limiter release");
+        mk(GlobalP::DensityToSend, "Crowd density to sends");
+        mk(GlobalP::DuckRange, "Ducker range clamp");
+        mk(GlobalP::DuckKeyHpf, "Ducker key HPF");
+        mk(GlobalP::DuckKeyLpf, "Ducker key LPF");
+        mk(GlobalP::DuckLookahead, "Ducker lookahead");
+    }
+    juce::OwnedArray<ParamCell> cells;
+};
+
+GlobalSettingsSection::GlobalSettingsSection(EditorContext& c) : SettingsSection(c, "Safety and global controls") {
+    impl = std::make_unique<Impl>(*this);
+}
+GlobalSettingsSection::~GlobalSettingsSection() = default;
+int GlobalSettingsSection::getNumCells() const noexcept { return impl->cells.size(); }
+
+int GlobalSettingsSection::preferredHeight(int width) const {
+    const int cols = width >= 640 ? 2 : 1;
+    const int rows = (impl->cells.size() + cols - 1) / cols;
+    return kHeader + paramCellH(scale()) * rows + 14;
+}
+
+void GlobalSettingsSection::resized() {
+    auto r = getLocalBounds().reduced(10, 0);
+    r.removeFromTop(kHeader);
+    const int ch = paramCellH(scale());
+    const int cols = getWidth() >= 640 ? 2 : 1;
+    const int cw = r.getWidth() / cols;
+    for (int i = 0; i < impl->cells.size(); ++i)
+        impl->cells[i]->setBounds(r.getX() + (i % cols) * cw, r.getY() + (i / cols) * ch, cw - 8, ch);
 }
 
 // ================================================================= Show files
@@ -614,7 +660,8 @@ juce::StringArray ShortcutsSection::shortcuts() {
              "Ctrl+1..9          Recall scene 1..9 (Shift: 10..18)",
              "Ctrl+R / Ctrl+M    Record start-stop / drop marker",
              "Ctrl+I             Show / hide the inspector",
-             "Hold E / Hold V    Echo throw / reverse trigger (momentary)",
+             "Hold E / V / K     Echo throw / reverse trigger / tail kill (echo + stadium reverb), momentary",
+             "Clip hotkeys       Assigned per clip on the Playback page",
              "Tab / Shift+Tab    Move keyboard focus; arrows adjust the focused control",
              "Shift-drag         Fine adjustment",
              "Ctrl-click         Reset control to default",

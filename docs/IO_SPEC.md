@@ -22,9 +22,9 @@ Because multichannel standalone layouts can depend on JUCE wrapper/device behavi
 
 ## 2. Plug-in buses
 
-Plugin mode exposes a flexible primary bus plus optional auxiliary buses.
+Plugin mode exposes one flexible primary bus (1 to 16 channels each way, bus-aware). Auxiliary buses (key input, broadcast/cue outputs) are out of scope for beta and specified in POST_BETA_SPEC.md section 2.
 
-Target initial layouts:
+Supported layouts (every discrete or named layout from 1 to 16 channels is accepted; these are the ones named for host testing):
 
 - mono -> mono
 - mono -> stereo
@@ -91,7 +91,7 @@ Required validation targets:
 - 88.2 kHz
 - 96 kHz
 
-Stretch target:
+Stretch target (DSP is rate independent; sustained hardware operation at these rates is manual validation, out of scope for beta automation):
 
 - 176.4 kHz
 - 192 kHz

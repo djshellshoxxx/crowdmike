@@ -15,6 +15,8 @@ namespace {
 using rec::MarkerType;
 
 const char* const kMarkerNames[] = { "Big Cheer", "Chant", "Applause", "Performer Moment", "Problem/Feedback", "Custom" };
+// Short captions so the six buttons fit the narrowest right column (a third of 1100 px); the full name is the accessible title / tooltip.
+const char* const kMarkerCaptions[] = { "Big Cheer", "Chant", "Applause", "Performer", "Problem", "Custom" };
 
 class RecordPage final : public Page, private Tickable, private juce::ListBoxModel {
 public:
@@ -104,9 +106,9 @@ public:
         kit::setupToggle(autoRec, "With transport", "Start a take when the host transport starts and stop it when the transport stops (takes started by hand are left alone)", palette().accentDim);
         autoRec.setComponentID("rec.autoRecord");
         autoRec.onClick = [this] { show().recorder.autoRecordOnTransport = autoRec.getToggleState(); kit::refreshToggleText(autoRec, "With transport"); modelEdited(); };
-        kit::setupToggle(exportAuto, "Auto-export markers", "Write marker CSV and Audacity labels next to the session file when a take ends", palette().accentDim);
+        kit::setupToggle(exportAuto, "Export markers", "Write marker CSV and Audacity labels next to the session file when a take ends", palette().accentDim);
         exportAuto.setComponentID("rec.exportMarkers");
-        exportAuto.onClick = [this] { show().recorder.exportMarkers = exportAuto.getToggleState(); kit::refreshToggleText(exportAuto, "Auto-export markers"); modelEdited(); };
+        exportAuto.onClick = [this] { show().recorder.exportMarkers = exportAuto.getToggleState(); kit::refreshToggleText(exportAuto, "Export markers"); modelEdited(); };
         kit::styleLabel(tokenHelp, 11.0f, false, true);
         tokenHelp.setText("Tokens: {date} {time} {scene} {source} {show} {venue} {take}", juce::dontSendNotification);
         kit::styleLabel(preview, 11.0f, false, false);
@@ -126,7 +128,8 @@ public:
 
         // ---- markers
         for (int m = 0; m < 6; ++m) {
-            auto* b = markerButtons.add(new juce::TextButton(kMarkerNames[m]));
+            auto* b = markerButtons.add(new juce::TextButton(kMarkerCaptions[m]));
+            b->setTitle(kMarkerNames[m]);
             kit::setupButton(*b, m == 5 ? "Add a custom marker with the label typed next to it" : juce::String("Add a \"") + kMarkerNames[m] + "\" marker at the current position",
                              "rec.marker" + juce::String(m));
             b->onClick = [this, m] { dropMarker(m); };
@@ -229,8 +232,13 @@ public:
         for (int t = 0; t < rows.size(); ++t) rows[t]->setBounds(0, t * rowH, trackHolder.getWidth(), rowH);
 
         // files section: label column + controls, two controls per row where it fits
-        const int rowH2 = juce::jlimit(24, 32, right.getHeight() / 22);
-        filesArea = right.removeFromTop(kit::kSectionTitleH + rowH2 * 9 + 6 * 8 + 22 + 8);
+        // The Markers section needs three button rows (6 markers, custom label / Export / Clear) to stay reachable at 1100x650:
+        // the Files rows shrink (down to 18 px) before the Markers section is allowed to lose a row.
+        const int markersMin = kit::kSectionTitleH + 8 + 3 * 26 + 2 * 6;
+        const int filesFixed = kit::kSectionTitleH + 8 + 88;   // title + bottom pad + gaps (60) + token help (14) + preview (16) - 4 (folder row)
+        const int fitRowH2 = (right.getHeight() - markersMin - 8 - filesFixed) / 9;
+        const int rowH2 = juce::jmax(18, juce::jmin(juce::jlimit(24, 32, right.getHeight() / 22), fitRowH2));
+        filesArea = right.removeFromTop(filesFixed + rowH2 * 9);
         right.removeFromTop(8);
         markersArea = right;
         auto fc = kit::sectionContent(filesArea);
@@ -388,7 +396,7 @@ private:
         autoRec.setToggleState(r.autoRecordOnTransport, juce::dontSendNotification);
         exportAuto.setToggleState(r.exportMarkers, juce::dontSendNotification);
         kit::refreshToggleText(autoRec, "With transport");
-        kit::refreshToggleText(exportAuto, "Auto-export markers");
+        kit::refreshToggleText(exportAuto, "Export markers");
         if (!pattern.hasKeyboardFocus(true)) pattern.setText(r.pattern, false);
         if (!showName.hasKeyboardFocus(true)) showName.setText(r.show, false);
         if (!venue.hasKeyboardFocus(true)) venue.setText(r.venue, false);

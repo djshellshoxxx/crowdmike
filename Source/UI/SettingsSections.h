@@ -129,6 +129,20 @@ private:
     juce::TextButton resync { "Resync downbeat" };
 };
 
+// Safety and global parameters that have no home on another page (rehearsal mode, output limiter ceiling / release / unlock,
+// crowd-density-to-sends, advanced performer-ducker settings). Every cell is a parameter control (host automation, MIDI, OSC, macros).
+class GlobalSettingsSection final : public SettingsSection {
+public:
+    explicit GlobalSettingsSection(EditorContext&);
+    ~GlobalSettingsSection() override;
+    int preferredHeight(int) const override;
+    void resized() override;
+    int getNumCells() const noexcept;
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+};
+
 class ShowFilesSection final : public SettingsSection {
 public:
     explicit ShowFilesSection(EditorContext&);

@@ -123,7 +123,7 @@ Parameters:
 - threshold/input gain
 - release
 - lookahead
-- true-peak mode future option
+- true-peak mode: out of scope for beta, specified in POST_BETA_SPEC.md section 3
 
 Requirements:
 
@@ -221,10 +221,10 @@ Parameters:
 - crowd-follow amount
 - attack/release
 - stereo width
-- random seed persistence optional
+- random seed (`seed` parameter, persisted with state and scenes; same seed gives the same noise)
 
-Future noise colors:
-pink, brown, bright, filtered hiss.
+Noise colors (built): White, Pink, Brown, Bright (`color` choice), plus filtered hiss through the HPF/LPF and tilt controls.
+Further colors are out of scope for beta.
 
 ## 12. Reverse Chunk effect
 
@@ -278,7 +278,7 @@ UI name should be “Polarity Ø” or “Invert Polarity,” not “Silence Cro
 
 ## 14. Continuous phase/all-pass tool
 
-Optional v1.1 feature.
+Built: the per-input `phaseStages` (Off, 1 to 4 all-pass stages) and phase frequency parameters.
 
 Use cascaded all-pass filters to vary phase relationship without changing steady-state magnitude strongly.
 
@@ -324,7 +324,7 @@ Parameters:
 
 ## 17. Transient/applause enhancer
 
-Optional but recommended.
+Built (per-input transient enhancer, `TransientEnhancer`).
 
 Purpose:
 emphasize applause onset without simply increasing overall loudness.

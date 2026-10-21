@@ -45,6 +45,10 @@ DuckerStrip::DuckerStrip(EditorContext& c, const LiveFlag& f)
 DuckerStrip::~DuckerStrip() = default;
 
 int DuckerStrip::preferredHeight() noexcept { return px(34); }
+// Single row needs about 1350 px (controls 360 + 5 sliders x 150 + meters 220); narrower pages (compact mode, 1100 px windows)
+// put the five sliders on their own second row so each keeps a usable track.
+bool DuckerStrip::isStacked(int width) noexcept { return width < px(1350); }
+int DuckerStrip::preferredHeight(int availableWidth) noexcept { return isStacked(availableWidth) ? px(34) + px(30) : px(34); }
 
 void DuckerStrip::tick() {
     if (!live.on) return;
@@ -79,6 +83,9 @@ void DuckerStrip::paint(juce::Graphics& g) {
 
 void DuckerStrip::resized() {
     auto r = getLocalBounds().reduced(5, 3);
+    const bool stacked = isStacked(getWidth());
+    juce::Rectangle<int> sliderRow;
+    if (stacked) { sliderRow = r.removeFromBottom(px(30) - 3); r.removeFromBottom(3); }
     const int h = r.getHeight();
     on.setBounds(r.removeFromLeft(px(64)));
     r.removeFromLeft(px(4));
@@ -93,7 +100,8 @@ void DuckerStrip::resized() {
     auto bars = right;
     keyLevel.setBounds(bars.removeFromTop(bars.getHeight() / 2).reduced(0, 1));
     gr.setBounds(bars.reduced(0, 1));
-    const int w = r.getWidth() / 5;
-    for (auto* c : { &thr, &depth, &attack, &hold, &release }) c->setBounds(r.removeFromLeft(w).reduced(px(2), 0));
+    auto& sliderArea = stacked ? sliderRow : r;
+    const int w = sliderArea.getWidth() / 5;
+    for (auto* c : { &thr, &depth, &attack, &hold, &release }) c->setBounds(sliderArea.removeFromLeft(w).reduced(px(2), 0));
 }
 }

@@ -70,7 +70,7 @@ The GUI and state model must keep these concepts separate.
 Per input/group/output:
 
 - polarity invert: exact 180-degree polarity inversion
-- optional continuous phase/all-pass control can be a later feature
+- continuous phase/all-pass control is built for inputs (`phaseStages` / all-pass phase parameters on the Inputs page and inspector); groups and outputs keep polarity invert only
 
 Use cases:
 

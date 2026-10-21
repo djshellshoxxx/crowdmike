@@ -6,15 +6,17 @@ The product accepts multiple audience microphones and other audio inputs, delays
 
 ## Status
 
-All eleven implementation phases of [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) are implemented; see
+All eleven implementation phases of [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) are implemented (status table in that file); see
 [docs/feature-audit/](docs/feature-audit/) for the feature-by-feature audit against the specifications and the list of
 items that still need real hardware / DAW validation. Module contracts: [docs/MODULES.md](docs/MODULES.md).
 
-### Download (Windows)
+### Download (beta)
 
-Every build of this repository produces a Windows x64 installer (Standalone + VST3 + CLAP) and a portable zip, attached to the
-`windows-build-*` pre-releases on the GitHub Releases page and to the `CrowdMike-Windows-x64` artifact of each CI run.
-The builds are unsigned (Windows SmartScreen may warn).
+Beta builds are cut on demand with the manual `release-beta` workflow (or a `beta-*` tag), see
+[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md). Each beta is a GitHub **pre-release** named `v<version>` (for example
+`v0.3.0-beta.1`) with a Windows x64 installer and portable zip, macOS (arm64 and x86_64) zips, a Linux tarball and `SHA256SUMS`;
+each contains Standalone + VST3 + CLAP. The `ci` workflow checks every push and pull request but publishes nothing.
+The builds are unsigned (Windows SmartScreen and macOS Gatekeeper warn); what is and is not verified is listed in the release process document.
 
 ### Build from source
 
@@ -25,12 +27,13 @@ ctest --test-dir build --output-on-failure          # use xvfb-run on headless L
 cmake --build build --target CrowdMike_All CrowdMike_CLAP
 ```
 
-## Planned formats
+## Formats
 
 - Standalone application
 - VST3 audio effect
 - CLAP audio effect
 - Windows, macOS, and Linux where supported by JUCE 9 and the selected audio backends
+- Not in the beta (specified in [docs/POST_BETA_SPEC.md](docs/POST_BETA_SPEC.md)): Audio Unit, auxiliary plug-in buses, ASIO, signed/notarized installers
 
 The project uses JUCE 9 with CMake. JUCE 9 is preferred because it provides native CLAP authoring alongside the other plug-in formats.
 
@@ -64,7 +67,15 @@ The polarity/phase controls are useful for correcting wiring polarity, aligning 
 - [Recording and playback specification](docs/RECORDING_SPEC.md)
 - [State, presets, automation, and MIDI/OSC specification](docs/CONTROL_SPEC.md)
 - [Testing and performance specification](docs/TESTING_SPEC.md)
-- [Implementation roadmap](docs/IMPLEMENTATION_PLAN.md)
+- [Implementation roadmap and status](docs/IMPLEMENTATION_PLAN.md)
+- [Module index and DSP contracts](docs/MODULES.md)
+- [Performer ducker](docs/DUCKER_SPEC.md)
+- [Line check](docs/LINE_CHECK_SPEC.md)
+- [Beat sync and tempo](docs/BEAT_SYNC_SPEC.md)
+- [Crowd energy tracker and Show Report](docs/SHOW_REPORT_SPEC.md)
+- [Release process (beta)](docs/RELEASE_PROCESS.md)
+- [Post-beta backlog specification](docs/POST_BETA_SPEC.md)
+- Feature audits: [2026-10-14 audit](docs/feature-audit/FEATURE_AUDIT_2026-10-14.md), [part C: GUI, wrappers, docs](docs/feature-audit/part-C-gui-wrappers-docs.md)
 
 ## High-level signal flow
 

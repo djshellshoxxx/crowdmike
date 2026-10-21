@@ -43,6 +43,7 @@ RecordTrackRow::RecordTrackRow(CrowdMikeAudioProcessor& p, int t) : proc(p), tra
     const juce::String n(t + 1);
     select.setButtonText(n);
     kit::setupButton(select, "Select track " + n + " for the rolling waveform", "rec.track" + n + ".select");
+    select.onClick = [this] { if (onSelect) onSelect(track); };   // the button swallows the mouse, so the row's own mouseDown never saw clicks on it
     source.setTitle("Track " + n + " source");
     source.setTooltip("Recorder source of track " + n + " (channel count follows the source: inputs mono, buses stereo)");
     source.setComponentID("rec.track" + n + ".source");

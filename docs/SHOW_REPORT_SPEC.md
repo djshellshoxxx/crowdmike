@@ -235,7 +235,7 @@ breaking change. All numbers are finite (non-finite values are written as 0). St
   (component id `live.energy`; child label ids `live.energy.peaks`).
 * **Record page**: a "Show Report" section under the track list: `Open folder` (`report.openFolder`, opens the last report
   folder, or the record folder), `Export now` (`report.exportNow`), `Auto-export` toggle (`report.autoExport`), `Auto markers`
-  toggle (`report.autoMarkers`), `Peak sensitivity` slider 0-100 % (`report.sensitivity`) and a status label
+  toggle (`report.autoMarkers`), `Tracking` toggle (`report.tracking`, `ShowModel::report.enabled`: off stops sampling and auto markers, the status reads "Tracking off"), `Peak sensitivity` slider 0-100 % (`report.sensitivity`) and a status label
   (`report.status`: tracking time, peak count, last export result). All edits go to `ShowModel::report` through
   `EditorContext::showModelChanged()`.
 
