@@ -17,9 +17,9 @@ const ModInfo kInfos[] = {
     { Mod::FxReverse, ReverseP::defs, ReverseP::Count, 1,         "fx.reverse.", "",    false, "" },
     { Mod::FxNoise, NoiseP::defs,   NoiseP::Count,   1,           "fx.noise.",   "",    false, "" },
     { Mod::Macro,   nullptr,        1,               kNumMacros,  "macro",  "Macro ",   true,  "" },
-    { Mod::Tempo,   TempoP::defs,   TempoP::Count,   1,           "tempo.", "",         false, "" },
     { Mod::FxReverb, ReverbP::defs, ReverbP::Count,  1,           "fx.reverb.",  "",    false, "" },
     { Mod::FxMulti, MultiP::defs,   MultiP::Count,   1,           "fx.multi.",   "",    false, "" },
+    { Mod::Tempo,   TempoP::defs,   TempoP::Count,   1,           "tempo.", "",         false, "" },
 };
 constexpr int kModCount = static_cast<int>(Mod::Count);
 

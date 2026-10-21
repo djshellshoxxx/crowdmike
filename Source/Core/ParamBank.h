@@ -12,7 +12,7 @@
 namespace crowdmike {
 // Modules added after the first release come AFTER Macro on purpose: global parameter indices and the persisted preset `module`
 // value of every earlier module stay unchanged.
-enum class Mod : int { Input, Group, Output, Master, Global, FxDelay, FxEcho, FxTape, FxReverse, FxNoise, Macro, Tempo, FxReverb, FxMulti, Count };
+enum class Mod : int { Input, Group, Output, Master, Global, FxDelay, FxEcho, FxTape, FxReverse, FxNoise, Macro, FxReverb, FxMulti, Tempo, Count };
 
 struct ModInfo {
     Mod id;
