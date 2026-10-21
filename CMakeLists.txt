@@ -40,6 +40,8 @@ file(GLOB_RECURSE CM_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/Source/*.
 list(REMOVE_ITEM CM_APP_SOURCES ${CM_DSP_SOURCES})
 list(FILTER CM_APP_SOURCES EXCLUDE REGEX "Source/Standalone/")
 file(GLOB_RECURSE CM_STANDALONE_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/Source/Standalone/*.cpp)
+# The device-independent part of the standalone shell (bindings, autosave, crash recovery) is unit-tested in crowdmike_tests.
+set(CM_DEVICE_CONTROLLER_SOURCE ${CMAKE_SOURCE_DIR}/Source/Standalone/DeviceController.cpp)
 
 juce_add_plugin(CrowdMike
     COMPANY_NAME "Circuit Drift Labs"
@@ -48,7 +50,12 @@ juce_add_plugin(CrowdMike
     PLUGIN_CODE CrM1
     FORMATS Standalone VST3
     PRODUCT_NAME "CrowdMike"
+    DESCRIPTION "Live crowd ambience reinforcement, processing, recording and playback"
     VST3_CATEGORIES Fx Spatial
+    IS_SYNTH FALSE
+    NEEDS_MIDI_INPUT FALSE      # plug-ins are driven by host automation; the standalone feeds its own MIDI to the processor
+    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
 )
 
 target_sources(CrowdMike PRIVATE ${CM_DSP_SOURCES} ${CM_APP_SOURCES})
@@ -78,7 +85,7 @@ endif()
 clap_juce_extensions_plugin(
     TARGET CrowdMike
     CLAP_ID "com.circuitdriftlabs.crowdmike"
-    CLAP_FEATURES audio-effect
+    CLAP_FEATURES audio-effect mixing
 )
 
 # ---------------------------------------------------------------------------------------------
@@ -102,6 +109,7 @@ add_executable(crowdmike_tests
     ${CM_ENGINE_TEST_SOURCES}
     ${CM_DSP_SOURCES}
     ${CM_APP_SOURCES}
+    ${CM_DEVICE_CONTROLLER_SOURCE}
 )
 target_include_directories(crowdmike_tests PRIVATE Source tests)
 target_compile_definitions(crowdmike_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)

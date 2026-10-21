@@ -104,6 +104,13 @@ ShowReportPanel::ShowReportPanel(EditorContext& c) : ctx(c), proc(c.proc) {
         kit::refreshToggleText(autoMarkers, "Auto markers");
         ctx.showModelChanged();
     };
+    kit::setupToggle(tracking, "Tracking", "Track crowd energy (peaks, averages, report data). Off stops sampling and auto markers.", palette().accentDim);
+    tracking.setComponentID("report.tracking");
+    tracking.onClick = [this] {
+        proc.getShow().report.enabled = tracking.getToggleState();
+        kit::refreshToggleText(tracking, "Tracking");
+        ctx.showModelChanged();
+    };
     kit::styleLabel(sensLabel, 12.0f, false, true);
     sensLabel.setText("Peak sensitivity", juce::dontSendNotification);
     sensitivity.setSliderStyle(juce::Slider::LinearBar);
@@ -119,7 +126,7 @@ ShowReportPanel::ShowReportPanel(EditorContext& c) : ctx(c), proc(c.proc) {
     };
     kit::styleLabel(status, 12.0f, false, true);
     status.setComponentID("report.status");
-    for (auto* x : std::initializer_list<juce::Component*> { &openButton, &exportButton, &autoExport, &autoMarkers, &sensLabel, &sensitivity, &status })
+    for (auto* x : std::initializer_list<juce::Component*> { &openButton, &exportButton, &autoExport, &autoMarkers, &tracking, &sensLabel, &sensitivity, &status })
         addAndMakeVisible(x);
     refreshFromModel();
 }
@@ -132,6 +139,8 @@ void ShowReportPanel::refreshFromModel() {
     kit::refreshToggleText(autoExport, "Auto-export");
     autoMarkers.setToggleState(r.autoMarkers, juce::dontSendNotification);
     kit::refreshToggleText(autoMarkers, "Auto markers");
+    tracking.setToggleState(r.enabled, juce::dontSendNotification);
+    kit::refreshToggleText(tracking, "Tracking");
     sensitivity.setValue(static_cast<double>(r.peakSensitivity) * 100.0, juce::dontSendNotification);
 }
 
@@ -140,7 +149,7 @@ void ShowReportPanel::resized() {
     auto row1 = r.removeFromTop(kit::kRowH);
     r.removeFromTop(6);
     auto row2 = r.removeFromTop(kit::kRowH);
-    kit::layoutRow(row1, { { &openButton, 1.0f }, { &exportButton, 1.0f }, { &autoExport, 1.15f }, { &autoMarkers, 1.15f } });
+    kit::layoutRow(row1, { { &openButton, 1.0f }, { &exportButton, 1.0f }, { &autoExport, 1.15f }, { &autoMarkers, 1.15f }, { &tracking, 1.0f } });
     kit::layoutRow(row2, { { &sensLabel, -104.0f }, { &sensitivity, 1.0f }, { &status, 1.7f } });
 }
 

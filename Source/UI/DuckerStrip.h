@@ -16,7 +16,9 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void tick() override;
-    static int preferredHeight() noexcept;
+    static int preferredHeight() noexcept;                 // single-row height
+    static int preferredHeight(int availableWidth) noexcept;   // two rows when the five sliders would get too little room
+    static bool isStacked(int width) noexcept;
     // test hooks
     ParamToggle& onToggle() { return on; }
     ParamChoice& keyChoice() { return key; }

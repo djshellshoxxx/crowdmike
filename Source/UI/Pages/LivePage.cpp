@@ -55,7 +55,7 @@ public:
         top.removeFromRight(6);
         ribbon.setBounds(top);
         r.removeFromTop(4);
-        duck.setBounds(r.removeFromTop(DuckerStrip::preferredHeight()));
+        duck.setBounds(r.removeFromTop(DuckerStrip::preferredHeight(r.getWidth())));
         r.removeFromTop(6);
         const int W = r.getWidth();
         auto masterArea = r.removeFromRight(juce::jlimit(190, 460, W / 5));

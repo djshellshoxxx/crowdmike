@@ -60,23 +60,28 @@ void StatusBar::paint(juce::Graphics& g) {
 
 void StatusBar::resized() {
     auto full = getLocalBounds();
+    // Row 2 (right): sample rate / block, latency, CPU. They used to share row 1, where at the minimum window width (1100 px) the
+    // badges left them no room at all (GUI_SPEC section 2 requires them to be visible).
     auto tempoRow = full.removeFromBottom(kTempoRowHeight).reduced(8, 1);
+    cpuLabel.setBounds(tempoRow.removeFromRight(78));
+    latencyLabel.setBounds(tempoRow.removeFromRight(100));
+    rateLabel.setBounds(tempoRow.removeFromRight(130));
+    tempoRow.removeFromRight(8);
     tempoWidget.setBounds(tempoRow.removeFromLeft(TempoWidget::kPreferredWidth)); tempoRow.removeFromLeft(8);
     messageLabel.setBounds(tempoRow);
     auto r = full.reduced(8, 5);
-    title.setBounds(r.removeFromLeft(118));
-    prevScene.setBounds(r.removeFromLeft(26)); r.removeFromLeft(2);
-    sceneLabel.setBounds(r.removeFromLeft(160)); r.removeFromLeft(2);
-    nextScene.setBounds(r.removeFromLeft(26)); r.removeFromLeft(10);
+    // Right block first (fixed widths), then the scene name takes whatever is left (never overlapping the badges).
     panic.setBounds(r.removeFromRight(140)); r.removeFromRight(6);
     bypass.setBounds(r.removeFromRight(86)); r.removeFromRight(6);
     recBadge.setBounds(r.removeFromRight(108)); r.removeFromRight(6);
     modeBadge.setBounds(r.removeFromRight(104)); r.removeFromRight(6);
     xrunBadge.setBounds(r.removeFromRight(100)); r.removeFromRight(6);
-    deviceBadge.setBounds(r.removeFromRight(190)); r.removeFromRight(6);
-    cpuLabel.setBounds(r.removeFromRight(78));
-    latencyLabel.setBounds(r.removeFromRight(100));
-    rateLabel.setBounds(r.removeFromRight(130));
+    deviceBadge.setBounds(r.removeFromRight(juce::jlimit(120, 190, r.getWidth() - 330))); r.removeFromRight(6);
+    title.setBounds(r.removeFromLeft(118));
+    prevScene.setBounds(r.removeFromLeft(26)); r.removeFromLeft(2);
+    const int sceneW = juce::jlimit(60, 220, r.getWidth() - 2 - 26 - 10);
+    sceneLabel.setBounds(r.removeFromLeft(sceneW)); r.removeFromLeft(2);
+    nextScene.setBounds(r.removeFromLeft(26));
 }
 
 void StatusBar::tick() {
@@ -158,6 +163,18 @@ PerformanceStrip::PerformanceStrip(EditorContext& c)
         addAndMakeVisible(l);
     }
     for (auto* b : { static_cast<juce::Button*>(&echoThrow), static_cast<juce::Button*>(&reverseTrigger), static_cast<juce::Button*>(&tailKill) }) addAndMakeVisible(*b);
+    // TAIL KILL is the panic for every tail: it drives the echo AND the stadium reverb tail-kill parameters (key K does the same).
+    tailKill.setTooltip("Tail kill (momentary): fades out echo throws and the stadium reverb tail while held (K)");
+    tailKill.onStateChange = [this] {
+        if (auto* p = proc.getBank().parameterAt(ParamBank::index(Mod::FxReverb, 0, ReverbP::TailKill))) {
+            const bool down = tailKill.isDown();
+            if (down != (p->getValue() >= 0.5f)) {
+                if (down) p->beginChangeGesture();
+                p->setValueNotifyingHost(down ? 1.0f : 0.0f);
+                if (!down) p->endChangeGesture();
+            }
+        }
+    };
     marker.setTooltip("Drop a recording marker (Ctrl+M)");
     marker.onClick = [this] { proc.addMarker(5); ctx.say("Marker added"); };
     record.setClickingTogglesState(false);
@@ -170,9 +187,22 @@ PerformanceStrip::PerformanceStrip(EditorContext& c)
         proc.getHub().setPanic(p == nullptr || p->getValue() < 0.5f);
     };
     for (auto* b : { &marker, &record, &panicBtn }) addAndMakeVisible(*b);
+    marker.setTitle("Add marker");
+    record.setTitle("Start recording");
+    record.setButtonText(juce::String::fromUTF8("\xe2\x97\x8f REC"));
+    panicBtn.setTitle("Panic");
     c.addListener(this);
+    tick();
 }
 PerformanceStrip::~PerformanceStrip() { ctx.removeListener(this); }
+void PerformanceStrip::tick() {
+    const bool recording = proc.isRecording();
+    if (record.getToggleState() != recording) {
+        record.setToggleState(recording, juce::dontSendNotification);
+        record.setButtonText(recording ? juce::String::fromUTF8("\xe2\x96\xa0 STOP") : juce::String::fromUTF8("\xe2\x97\x8f REC"));
+        record.setTitle(recording ? "Stop recording" : "Start recording");
+    }
+}
 void PerformanceStrip::showModelChanged() { for (int m = 0; m < macroLabels.size(); ++m) macroLabels[m]->setText(proc.getShow().macroNames[static_cast<size_t>(m)], juce::dontSendNotification); }
 
 void PerformanceStrip::resized() {
