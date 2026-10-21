@@ -38,6 +38,7 @@ juce::var SessionMetadata::toVar(const SessionInfo& s) {
     root->setProperty("appVersion", s.appVersion);
     root->setProperty("startTime", s.startTimeIso);
     root->setProperty("sampleRate", s.sampleRate);
+    if (s.tempoBpm > 0.0) root->setProperty("tempoBpm", s.tempoBpm);
     root->setProperty("take", s.take);
     root->setProperty("scene", s.scene);
     root->setProperty("show", s.show);
@@ -131,6 +132,7 @@ bool SessionMetadata::read(const juce::File& json, SessionInfo& out) {
     out.appVersion = v["appVersion"].toString();
     out.startTimeIso = v["startTime"].toString();
     out.sampleRate = (double) v["sampleRate"];
+    out.tempoBpm = (double) v["tempoBpm"];
     out.take = (int) v["take"];
     out.scene = v["scene"].toString();
     out.show = v["show"].toString();

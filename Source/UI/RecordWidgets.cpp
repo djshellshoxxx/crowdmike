@@ -67,7 +67,7 @@ RecordTrackRow::RecordTrackRow(CrowdMikeAudioProcessor& p, int t) : proc(p), tra
     const auto& pal = palette();
     kit::setupToggle(arm, "ARM", "Arm track " + n + " for recording", pal.rec);
     kit::setupToggle(mute, "MUTE", "Mute track " + n + " (kept configured but not recorded)", pal.mute);
-    kit::setupToggle(monitor, "MON", "Monitor track " + n + " (follow it in the rolling waveform)", pal.accentDim);
+    kit::setupToggle(monitor, "MON", "Monitor track " + n + ": send its record tap to the cue output pair (set on the Record page) and follow it in the rolling waveform", pal.accentDim);
     arm.setComponentID("rec.track" + n + ".arm");
     mute.setComponentID("rec.track" + n + ".mute");
     monitor.setComponentID("rec.track" + n + ".monitor");

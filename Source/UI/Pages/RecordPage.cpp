@@ -2,6 +2,7 @@
 // file settings, disk + time estimate, rolling waveform, markers, split, record-all and a large Record/Stop.
 // Every edit goes to ShowModel::recorder and is applied with applyShowChanges() (diffed in the processor, so it is cheap).
 #include "Engine/TapMap.h"
+#include "Recording/MarkerExport.h"
 #include "UI/Meters.h"
 #include "UI/PageKit.h"
 #include "UI/Pages.h"
@@ -59,7 +60,7 @@ public:
         addAndMakeVisible(waveform);
 
         // ---- file settings
-        format.addItemList({ "WAV 16-bit PCM", "WAV 24-bit PCM", "WAV 32-bit float" }, 1);
+        format.addItemList({ "WAV 16-bit PCM", "WAV 24-bit PCM", "WAV 32-bit float", "FLAC 24-bit (lossless)" }, 1);
         format.setTitle("File format");
         format.setTooltip("Bit depth of new takes (sample rate = engine rate)");
         format.setComponentID("rec.format");
@@ -82,10 +83,34 @@ public:
         pattern.onTextChange = [this] { updatePreview(); };
         setupText(showName, "Show name ({show} token)", "rec.show", [this] { show().recorder.show = showName.getText(); });
         setupText(venue, "Venue ({venue} token)", "rec.venue", [this] { show().recorder.venue = venue.getText(); });
+        // cue / monitor output + options (RECORDING_SPEC 6, 8, 14)
+        monitorPair.addItem("Off", 1);
+        for (int p = 0; p < kMaxOutputs / 2; ++p) monitorPair.addItem("Out " + juce::String(p * 2 + 1) + "-" + juce::String(p * 2 + 2), p + 2);
+        monitorPair.setTitle("Cue output pair");
+        monitorPair.setTooltip("Cue / monitor: output pair that carries the tracks whose MON switch is on (added after the output limiters; use a pair that is not part of the PA)");
+        monitorPair.setComponentID("rec.monitorPair");
+        monitorPair.onChange = [this] { show().recorder.monitorPair = monitorPair.getSelectedId() - 2; modelEdited(); };
+        monitorGain.setSliderStyle(juce::Slider::LinearBar);
+        monitorGain.setRange(-60.0, 12.0, 0.5);
+        monitorGain.setTextValueSuffix(" dB");
+        monitorGain.setTooltip("Cue level: gain of the monitor mix");
+        monitorGain.setTitle("Cue level");
+        monitorGain.setComponentID("rec.monitorGain");
+        monitorGain.setDoubleClickReturnValue(true, 0.0);
+        monitorGain.setWantsKeyboardFocus(true);
+        monitorGain.onValueChange = [this] { show().recorder.monitorGainDb = static_cast<float>(monitorGain.getValue()); modelEdited(); };
+        kit::setupToggle(autoRec, "With transport", "Start a take when the host transport starts and stop it when the transport stops (takes started by hand are left alone)", palette().accentDim);
+        autoRec.setComponentID("rec.autoRecord");
+        autoRec.onClick = [this] { show().recorder.autoRecordOnTransport = autoRec.getToggleState(); kit::refreshToggleText(autoRec, "With transport"); modelEdited(); };
+        kit::setupToggle(exportAuto, "Auto-export markers", "Write marker CSV and Audacity labels next to the session file when a take ends", palette().accentDim);
+        exportAuto.setComponentID("rec.exportMarkers");
+        exportAuto.onClick = [this] { show().recorder.exportMarkers = exportAuto.getToggleState(); kit::refreshToggleText(exportAuto, "Auto-export markers"); modelEdited(); };
         kit::styleLabel(tokenHelp, 11.0f, false, true);
         tokenHelp.setText("Tokens: {date} {time} {scene} {source} {show} {venue} {take}", juce::dontSendNotification);
         kit::styleLabel(preview, 11.0f, false, false);
-        for (auto* l : { &lFormat, &lPre, &lPost, &lSplit, &lPattern, &lShow, &lVenue }) { kit::styleLabel(*l, 12.0f, false, true); addAndMakeVisible(*l); }
+        for (auto* l : { &lFormat, &lPre, &lPost, &lSplit, &lPattern, &lShow, &lVenue, &lCue, &lOpts }) { kit::styleLabel(*l, 12.0f, false, true); addAndMakeVisible(*l); }
+        lCue.setText("Cue / monitor", juce::dontSendNotification);
+        lOpts.setText("Options", juce::dontSendNotification);
         lFormat.setText("Format", juce::dontSendNotification);
         lPre.setText("Pre-roll", juce::dontSendNotification);
         lPost.setText("Post-roll", juce::dontSendNotification);
@@ -94,7 +119,7 @@ public:
         lShow.setText("Show", juce::dontSendNotification);
         lVenue.setText("Venue", juce::dontSendNotification);
         for (auto* c2 : std::initializer_list<juce::Component*> { &format, &folderButton, &folderLabel, &preRoll, &postRoll, &splitMinutes, &splitMB,
-                                                                 &pattern, &tokenHelp, &preview, &showName, &venue })
+                                                                 &pattern, &tokenHelp, &preview, &showName, &venue, &monitorPair, &monitorGain, &autoRec, &exportAuto })
             addAndMakeVisible(c2);
 
         // ---- markers
@@ -119,6 +144,10 @@ public:
         kit::setupButton(clearMarkers, "Clear the marker list (markers already written to the session file stay there)", "rec.clearMarkers");
         clearMarkers.onClick = [this] { proc.getRecorder().clearMarkers(); refreshMarkers(true); };
         addAndMakeVisible(clearMarkers);
+        exportNow.setButtonText("Export...");
+        kit::setupButton(exportNow, "Write the markers of the last take as CSV and Audacity labels next to its session file", "rec.exportMarkersNow");
+        exportNow.onClick = [this] { exportLastMarkers(); };
+        addAndMakeVisible(exportNow);
 
         refreshFromModel();
         selectTrack(0);
@@ -195,7 +224,7 @@ public:
 
         // files section: label column + controls, two controls per row where it fits
         const int rowH2 = juce::jlimit(24, 32, right.getHeight() / 22);
-        filesArea = right.removeFromTop(kit::kSectionTitleH + rowH2 * 7 + 6 * 6 + 22 + 8);
+        filesArea = right.removeFromTop(kit::kSectionTitleH + rowH2 * 9 + 6 * 8 + 22 + 8);
         right.removeFromTop(8);
         markersArea = right;
         auto fc = kit::sectionContent(filesArea);
@@ -224,6 +253,9 @@ public:
             lVenue.setBounds(row.removeFromLeft(48));
             venue.setBounds(row);
         }
+        fc.removeFromTop(6);
+        kit::layoutRow(line(lCue), { { &monitorPair, 1.0f }, { &monitorGain, 1.0f } });
+        kit::layoutRow(line(lOpts), { { &autoRec, 1.0f }, { &exportAuto, 1.0f } });
 
         auto mc = kit::sectionContent(markersArea);
         const int bh = juce::jlimit(26, 34, mc.getHeight() / 9);
@@ -236,6 +268,8 @@ public:
             auto row = mc.removeFromTop(bh);
             mc.removeFromTop(6);
             clearMarkers.setBounds(row.removeFromRight(64));
+            row.removeFromRight(6);
+            exportNow.setBounds(row.removeFromRight(76));
             row.removeFromRight(6);
             customLabel.setBounds(row);
         }
@@ -268,9 +302,14 @@ public:
         else if (st.preRollSeconds > 0.0) stateBadge.set("STOPPED, PRE-ROLL " + juce::String(static_cast<int>(st.preRollSeconds)) + " s", StatusBadge::Level::Ok);
         else stateBadge.set("STOPPED", StatusBadge::Level::Off);
         dropBadge.set(st.dropouts > 0 ? "DROPOUTS " + juce::String(st.dropouts) : juce::String("NO DROPOUTS"), st.dropouts > 0 ? StatusBadge::Level::Warn : StatusBadge::Level::Off);
-        errBadge.set(st.errors > 0 ? "DISK ERRORS " + juce::String(st.errors) : juce::String("DISK OK"), st.errors > 0 ? StatusBadge::Level::Danger : StatusBadge::Level::Off);
+        if (st.diskStopped) errBadge.set("DISK FULL: STOPPED", StatusBadge::Level::Danger);
+        else if (st.errors > 0) errBadge.set("DISK ERRORS " + juce::String(st.errors), StatusBadge::Level::Danger);
+        else if (st.lowDisk) errBadge.set("LOW DISK", StatusBadge::Level::Warn);
+        else errBadge.set("DISK OK", StatusBadge::Level::Off);
         diskLabel.setTooltip(st.lastError.isNotEmpty() ? "Last recorder error: " + st.lastError : juce::String());
         if (st.errors > lastErrors) { lastErrors = st.errors; ctx.say("Recorder error: " + st.lastError, true); }
+        if (st.lowDisk && !lowDiskWarned) { lowDiskWarned = true; ctx.say("Low disk space in the record folder", true); }
+        if (!st.lowDisk) lowDiskWarned = false;
         if (st.preRollClipped && !preRollWarned) { preRollWarned = true; ctx.say("Pre-roll shortened to fit the memory limit", true); }
 
         takeLabel.setText("Take " + juce::String(recording ? st.take : st.take + 1) + (recording ? "" : " (next)"), juce::dontSendNotification);
@@ -338,6 +377,12 @@ private:
         postRoll.setValue(r.postRollSeconds, juce::dontSendNotification);
         splitMinutes.setValue(r.maxFileSeconds / 60.0, juce::dontSendNotification);
         splitMB.setValue(r.maxFileMegabytes, juce::dontSendNotification);
+        monitorPair.setSelectedId(r.monitorPair + 2, juce::dontSendNotification);
+        monitorGain.setValue(r.monitorGainDb, juce::dontSendNotification);
+        autoRec.setToggleState(r.autoRecordOnTransport, juce::dontSendNotification);
+        exportAuto.setToggleState(r.exportMarkers, juce::dontSendNotification);
+        kit::refreshToggleText(autoRec, "With transport");
+        kit::refreshToggleText(exportAuto, "Auto-export markers");
         if (!pattern.hasKeyboardFocus(true)) pattern.setText(r.pattern, false);
         if (!showName.hasKeyboardFocus(true)) showName.setText(r.show, false);
         if (!venue.hasKeyboardFocus(true)) venue.setText(r.venue, false);
@@ -370,7 +415,7 @@ private:
 
     double bytesPerSecond() {
         const auto& r = show().recorder;
-        const double bytesPerSample = r.format == 0 ? 2.0 : (r.format == 1 ? 3.0 : 4.0);
+        const double bytesPerSample = r.format == 0 ? 2.0 : (r.format == 2 ? 4.0 : 3.0);   // FLAC: uncompressed worst case
         const double sr = proc.getSampleRate() > 0.0 ? proc.getSampleRate() : 48000.0;
         int channels = 0;
         for (const auto& t : r.tracks)
@@ -389,7 +434,7 @@ private:
                    .replace("{scene}", proc.getCurrentSceneName()).replace("{source}", src)
                    .replace("{show}", r.show.isNotEmpty() ? r.show : "Show").replace("{venue}", r.venue.isNotEmpty() ? r.venue : "Venue")
                    .replace("{take}", juce::String(nextTake).paddedLeft('0', 2));
-        preview.setText("e.g. " + juce::File::createLegalFileName(name) + ".wav", juce::dontSendNotification);
+        preview.setText("e.g. " + juce::File::createLegalFileName(name) + (r.format == 3 ? ".flac" : ".wav"), juce::dontSendNotification);
         preview.setTooltip(preview.getText());
     }
 
@@ -460,6 +505,15 @@ private:
         ctx.select({ Selection::Kind::Track, selectedTrack });
     }
 
+    void exportLastMarkers() {
+        const auto json = proc.getRecorder().getLastSessionFile();
+        rec::SessionInfo info;
+        if (json == juce::File() || !rec::SessionMetadata::read(json, info)) { ctx.say("No finished take to export markers from", true); return; }
+        juce::String err;
+        if (rec::MarkerExport::writeAll(json, info, err)) ctx.say("Markers exported next to " + json.getFileName());
+        else ctx.say(err, true);
+    }
+
     void dropMarker(int type) {
         const auto label = type == 5 ? customLabel.getText().trim() : juce::String();
         proc.addMarker(type, label);
@@ -508,7 +562,7 @@ private:
         g.drawText(m.scene, w - sceneW - 4, 0, sceneW, h, juce::Justification::centredRight, true);
     }
 
-    bool active = false, wasRecording = false, preRollWarned = false, ownMarkers = false, markersInit = false;
+    bool active = false, wasRecording = false, preRollWarned = false, ownMarkers = false, markersInit = false, lowDiskWarned = false;
     int tickCount = 0, selectedTrack = 0, lastErrors = 0;
     juce::uint32 lastFreeCheckMs = 0;
     double cachedFreeGB = -1.0;
@@ -526,7 +580,10 @@ private:
 
     juce::ComboBox format;
     juce::TextButton folderButton;
-    juce::Label folderLabel, tokenHelp, preview, lFormat, lPre, lPost, lSplit, lPattern, lShow, lVenue;
+    juce::Label folderLabel, tokenHelp, preview, lFormat, lPre, lPost, lSplit, lPattern, lShow, lVenue, lCue, lOpts;
+    juce::ComboBox monitorPair;
+    juce::Slider monitorGain;
+    juce::TextButton autoRec, exportAuto, exportNow;
     juce::Slider preRoll, postRoll, splitMinutes, splitMB;
     juce::TextEditor pattern, showName, venue;
     std::unique_ptr<juce::FileChooser> chooser;

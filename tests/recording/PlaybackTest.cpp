@@ -1,4 +1,5 @@
 #include "RecTestUtil.h"
+#include <filesystem>
 #include "Recording/PlaybackEngine.h"
 #include "Recording/AudioFileLoader.h"
 
@@ -247,8 +248,21 @@ CM_TEST(Playback_InvalidFilesReportErrors) {
     good.loadFileAsData(gm);
     auto trunc = tmp.dir.getChildFile("trunc.wav");
     trunc.replaceWithData(gm.getData(), 30);
-    // Longer than 15 minutes (8 kHz 16-bit mono keeps the test file small).
-    auto longF = makeClip(tmp.dir, "long.wav", 8000.0, (int) (15.1 * 60 * 8000), 1, [](int, int) { return 0.0f; }, 16);
+    // Longer than the 24 h limit is rejected from the header alone: a WAV header that declares 25 h at 8 kHz.
+    auto longF = makeClip(tmp.dir, "long.wav", 8000.0, 8000, 1, [](int, int) { return 0.0f; }, 16);
+    {
+        juce::MemoryBlock lm;
+        longF.loadFileAsData(lm);
+        auto* d = static_cast<unsigned char*>(lm.getData());
+        const juce::uint32 dataBytes = (juce::uint32) (25.0 * 3600 * 8000 * 2);   // < 4 GB
+        size_t dataAt = 40;   // locate the 'data' chunk size field
+        for (size_t k = 12; k + 8 < lm.getSize(); ++k)
+            if (std::memcmp(d + k, "data", 4) == 0) { dataAt = k + 4; break; }
+        for (int k = 0; k < 4; ++k) d[dataAt + (size_t) k] = (unsigned char) ((dataBytes >> (8 * k)) & 0xff);
+        longF.replaceWithData(lm.getData(), lm.getSize());
+        std::error_code ec;
+        std::filesystem::resize_file(longF.getFullPathName().toStdString(), dataAt + 4 + dataBytes, ec);   // sparse
+    }
 
     PE pe;
     pe.prepare(48000.0, 256);

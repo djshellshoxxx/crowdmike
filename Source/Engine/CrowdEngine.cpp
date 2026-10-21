@@ -73,6 +73,7 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     meters.blockSize.store(maxBlock);
     for (auto& t : trackSource) t.store(-1);
     for (auto& t : trackChannels) t.store(1);
+    monitorBus.prepare(sr, maxBlock);
     prepared = true;
 }
 
@@ -96,6 +97,8 @@ void CrowdEngine::process(juce::AudioBuffer<float>& buffer, const BlockInfo& inf
     const auto start = std::chrono::steady_clock::now();
     const int total = buffer.getNumSamples();
     if (!prepared || services.bank == nullptr) { buffer.clear(); return; }
+    transportTrigger.setHostPlaying(info.playing);
+    if (info.hasTempo) lastBpm.store(info.bpm, std::memory_order_relaxed);
     for (int offset = 0; offset < total; offset += maxBlock)
         processChunk(buffer, offset, std::min(maxBlock, total - offset), info);
 
@@ -136,6 +139,23 @@ void CrowdEngine::pushTaps(int n) noexcept {
         rec->pushTap(t, ptr, std::min(ch, trackChannels[static_cast<size_t>(t)].load(std::memory_order_relaxed)), n);
     }
     rec->advance(n);
+}
+
+// Cue / monitor output: every monitored track's record tap (whether or not it is armed) summed into one stereo pair.
+void CrowdEngine::mixMonitor(int n) noexcept {
+    if (!monitorBus.isActive()) return;
+    const int pair = monitorBus.getPair();
+    monitorBus.beginBlock(n);
+    for (int t = 0; t < kMaxRecordTracks; ++t) {
+        if (!monitorBus.isTrackMonitored(t)) continue;
+        const int id = trackSource[static_cast<size_t>(t)].load(std::memory_order_relaxed);
+        if (!TapMap::isValid(id) || id == TapMap::forOutputPair(pair)) continue;   // never feed a bus into itself
+        const float* ptr[2];
+        int ch = 1;
+        tapPointers(id, ptr, ch);
+        const int use = std::min(ch, trackChannels[static_cast<size_t>(t)].load(std::memory_order_relaxed));
+        monitorBus.addSource(ptr[0], use >= 2 ? ptr[1] : nullptr, n);
+    }
 }
 
 void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n, const BlockInfo& info) noexcept {
@@ -226,6 +246,8 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         float* dl[10];
         float* dr[10];
         for (int k = 0; k < 10; ++k) { dl[k] = pbL.channel(k); dr[k] = pbR.channel(k); }
+        const double bps = info.bpm / (60.0 * sampleRate);   // chunk start inside the host block -> its own ppq
+        services.playback->setTempo({ info.bpm, info.ppqPosition + static_cast<double>(offset) * bps, info.hasTempo, info.playing });
         services.playback->process(dl, dr, n, panic);
     }
 
@@ -393,6 +415,7 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
 
     // ---- 10. record taps (before panic / rehearsal so recording continues), then analysis feed
     pushTaps(n);
+    mixMonitor(n);
     {
         const int tap = feedbackTap.load(std::memory_order_relaxed);
         const float* mono = tap == 0 ? ml : (tap <= 16 ? proc.channel(tap - 1) : groupL.channel(juce::jlimit(0, kMaxGroups - 1, tap - 17)));
@@ -413,6 +436,11 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
             const float dry = (c < ins) ? dryBuf.channel(c)[s] : 0.0f;
             outBuf.channel(c)[s] = b <= 0.0f ? wet : wet * (1.0f - b) + dry * b;
         }
+    }
+    if (monitorBus.isActive()) {   // cue pair: added after panic / rehearsal / bypass, hard-limited to 0 dBFS
+        const int pair = monitorBus.getPair();
+        const int l = pair * 2, r = pair * 2 + 1;
+        if (l < numOut) monitorBus.mixInto(outBuf.channel(l), r < numOut ? outBuf.channel(r) : nullptr, n);
     }
     const int writable = host.getNumChannels();
     for (int c = 0; c < writable; ++c) {

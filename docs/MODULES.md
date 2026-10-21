@@ -113,3 +113,11 @@ class FeedbackDetector { void prepare(double sr);   // allocates
 * `CrowdEngine` owns all DSP state; the processor/GUI talk to it through atomics and lock-free queues only.
 * Panic is a dedicated atomic checked every block; recorder taps are taken before the panic gain.
 * Every output channel passes through the same lookahead limiter, so plug-in latency is a single constant reported to the host.
+
+## Recording extras (`Source/Recording`)
+
+* `StreamSource`: random-access engine-rate stereo file reader (any JUCE format), same resampler as `AudioFileLoader`. Worker thread only.
+* `StreamPool`: 16 read-ahead rings plus the "CrowdMike clip streamer" thread. Audio thread: `acquire/release/ring` (lock-free, no IO). Stats for underruns. See RECORDING_SPEC 9.1.
+* `MonitorBus`: cue/monitor stereo pair mix of record taps, ramped gain, hard limit. Audio thread safe. See RECORDING_SPEC 14.
+* `MarkerExport`: CSV, Audacity labels and REAPER CSV of a session's markers. Message/writer thread.
+* `TransportRecordTrigger`: host transport edge detector for record-with-transport. One atomic on the audio thread, polled by the processor timer.

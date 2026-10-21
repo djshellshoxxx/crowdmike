@@ -178,3 +178,34 @@ CM_TEST(persistence_missing_clip_file_is_reported_not_fatal) {
     CM_EXPECT(q.isClipMissing(0));
     dir.deleteRecursively();
 }
+
+// Older saved shows (no monitor / disk guard / sync keys) load with the documented defaults; new keys round-trip.
+CM_TEST(persistence_old_recorder_tree_loads_with_defaults_and_new_keys_roundtrip) {
+    ShowModel m;
+    auto t = m.toValueTree();
+    auto r = t.getChildWithName("Recorder");
+    CM_EXPECT(r.isValid());
+    for (auto key : { "monitorPair", "monitorGainDb", "autoRecord", "exportMarkers", "lowDiskWarnMB", "lowDiskStopMB" })
+        r.removeProperty(key, nullptr);   // what a v2 state looks like
+    r.setProperty("format", 1, nullptr);
+    ShowModel old;
+    CM_EXPECT(old.fromValueTree(t));
+    CM_EXPECT(old.recorder.format == 1);
+    CM_EXPECT(old.recorder.monitorPair == -1 && old.recorder.monitorGainDb == 0.0f);
+    CM_EXPECT(! old.recorder.autoRecordOnTransport && ! old.recorder.exportMarkers);
+    CM_EXPECT(old.recorder.lowDiskWarnMB == 500 && old.recorder.lowDiskStopMB == 100);
+
+    ShowModel a;
+    a.recorder.format = 3;
+    a.recorder.monitorPair = 3;
+    a.recorder.monitorGainDb = -6.5f;
+    a.recorder.autoRecordOnTransport = true;
+    a.recorder.exportMarkers = true;
+    a.recorder.lowDiskWarnMB = 800;
+    a.recorder.lowDiskStopMB = 200;
+    ShowModel b;
+    CM_EXPECT(b.fromValueTree(a.toValueTree()));
+    CM_EXPECT(b.recorder.format == 3 && b.recorder.monitorPair == 3 && b.recorder.monitorGainDb == -6.5f);
+    CM_EXPECT(b.recorder.autoRecordOnTransport && b.recorder.exportMarkers);
+    CM_EXPECT(b.recorder.lowDiskWarnMB == 800 && b.recorder.lowDiskStopMB == 200);
+}
