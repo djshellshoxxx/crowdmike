@@ -153,3 +153,11 @@ Spec: `docs/DUCKER_SPEC.md`. Engine wiring in `CrowdEngine::applyDucker` (copies
 | Engine feeds | `Engine/EngineMeters.h` | `crowdLevelDb`, `masterRmsDb`, `shortTermLufs`, `reportMasterPeak`, `events.*` relaxed atomics written by the audio thread (edge counters, no locks). |
 | Recorder accessor | `Recording/RecorderEngine.h` | `addMarkerAt(frame, label, type)`: additive marker API at an explicit frame. |
 | UI panels | `UI/ReportPanels.*` | `EnergySparkline` (Live page, id `live.energy`) and `ShowReportPanel` (Record page, ids `report.*`). Settings live in `ShowModel::report` (child `Report`, absent in old states). |
+
+## Recording extras (`Source/Recording`)
+
+* `StreamSource`: random-access engine-rate stereo file reader (any JUCE format), same resampler as `AudioFileLoader`. Worker thread only.
+* `StreamPool`: 16 read-ahead rings plus the "CrowdMike clip streamer" thread. Audio thread: `acquire/release/ring` (lock-free, no IO). Stats for underruns. See RECORDING_SPEC 9.1.
+* `MonitorBus`: cue/monitor stereo pair mix of record taps, ramped gain, hard limit. Audio thread safe. See RECORDING_SPEC 14.
+* `MarkerExport`: CSV, Audacity labels and REAPER CSV of a session's markers. Message/writer thread.
+* `TransportRecordTrigger`: host transport edge detector for record-with-transport. One atomic on the audio thread, polled by the processor timer.

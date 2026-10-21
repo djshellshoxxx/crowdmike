@@ -25,6 +25,13 @@ struct Lowpass {
 };
 } // namespace
 
+void AudioFileLoader::antiAlias(float* x, int n, double inRate, double outRate) {
+    const double fc = 0.45 * outRate;
+    const Lowpass s1(inRate, fc, 0.5411961), s2(inRate, fc, 1.3065630);
+    s1.run(x, n, false); s2.run(x, n, false);
+    s1.run(x, n, true);  s2.run(x, n, true);
+}
+
 void AudioFileLoader::resample(const juce::AudioBuffer<float>& in, double inRate, double outRate,
                                juce::AudioBuffer<float>& out) {
     const int nch = in.getNumChannels(), inLen = in.getNumSamples();
@@ -41,13 +48,7 @@ void AudioFileLoader::resample(const juce::AudioBuffer<float>& in, double inRate
     const juce::AudioBuffer<float>* src = &in;
     if (outRate < inRate) {   // anti-alias: 8th-order zero-phase Butterworth (2 sections, forward + backward)
         filtered.makeCopyOf(in);
-        const double fc = 0.45 * outRate;
-        const Lowpass s1(inRate, fc, 0.5411961), s2(inRate, fc, 1.3065630);
-        for (int c = 0; c < nch; ++c) {
-            auto* d = filtered.getWritePointer(c);
-            s1.run(d, inLen, false); s2.run(d, inLen, false);
-            s1.run(d, inLen, true);  s2.run(d, inLen, true);
-        }
+        for (int c = 0; c < nch; ++c) antiAlias(filtered.getWritePointer(c), inLen, inRate, outRate);
         src = &filtered;
     }
     for (int c = 0; c < nch; ++c) {
@@ -59,13 +60,7 @@ void AudioFileLoader::resample(const juce::AudioBuffer<float>& in, double inRate
             const auto i = (juce::int64) std::floor(t);
             const double f = t - (double) i;
             if (f < 1.0e-12) { y[n] = (float) at(i); continue; }
-            const double xm1 = at(i - 1), x0 = at(i), x1 = at(i + 1), x2 = at(i + 2);
-            // 4-point, 3rd-order Lagrange
-            const double c0 = -f * (f - 1.0) * (f - 2.0) / 6.0;
-            const double c1 = (f + 1.0) * (f - 1.0) * (f - 2.0) / 2.0;
-            const double c2 = -(f + 1.0) * f * (f - 2.0) / 2.0;
-            const double c3 = (f + 1.0) * f * (f - 1.0) / 6.0;
-            y[n] = (float) (c0 * xm1 + c1 * x0 + c2 * x1 + c3 * x2);
+            y[n] = lagrange4(at(i - 1), at(i), at(i + 1), at(i + 2), f);
         }
     }
 }

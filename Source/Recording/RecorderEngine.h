@@ -43,7 +43,7 @@ public:
 
     struct RecordOptions {
         juce::File folder;
-        enum Format { Wav16, Wav24, Wav32f } format = Wav24;
+        enum Format { Wav16, Wav24, Wav32f, Flac24 } format = Wav24;   // Flac24 appended (RECORDING_SPEC 2)
         juce::String namePattern = "{date}_{time}_{scene}_{source}";
         juce::String scene, show, venue;
         int preRollSeconds = 0;          // 0..60: history to include (limited by setPreRollSeconds()/what is buffered)
@@ -52,6 +52,11 @@ public:
         juce::int64 maxFileBytes = 0;    // automatic split, 0 = off (approximate, per file)
         juce::var routeSnapshot;         // opaque, copied into the session JSON
         juce::String appVersion;
+        // ---- appended (RECORDING_SPEC 2, 4, 8, 13)
+        int lowDiskWarnMB = 500;         // free space below this raises Status::lowDisk (0 = off)
+        int lowDiskStopMB = 100;         // free space below this ends the take cleanly (0 = off); also refuses a start
+        double tempoBpm = 0.0;           // host/engine tempo at the start of the take, 0 = unknown (session JSON)
+        bool exportMarkers = false;      // write <session>_markers.csv and .txt (Audacity labels) next to the JSON
     };
 
     struct Status {
@@ -66,10 +71,25 @@ public:
         int take = 0;                    // number of the current/last take (auto-increments per startRecording)
         double preRollSeconds = 0.0;     // effective pre-roll buffer length
         bool preRollClipped = false;     // pre-roll reduced to fit kMaxPreRollBytes
+        bool lowDisk = false;            // free space below RecordOptions::lowDiskWarnMB
+        bool diskStopped = false;        // the last take was ended by the low-disk guard (lowDiskStopMB)
+        double diskSecondsLeft = -1.0;   // free space / (worst-case uncompressed) write rate of the take, -1 unknown
         juce::String lastError;
     };
 
     using OutputStreamFactory = std::function<std::unique_ptr<juce::OutputStream>(const juce::File&)>;
+    using FreeSpaceProvider = std::function<juce::int64(const juce::File&)>;
+
+    /** Bits per sample written for a format (16 / 24 / 32 / 24). */
+    static int bitsFor(RecordOptions::Format f) noexcept {
+        return f == RecordOptions::Wav16 ? 16 : f == RecordOptions::Wav24 || f == RecordOptions::Flac24 ? 24 : 32;
+    }
+    static const char* extensionFor(RecordOptions::Format f) noexcept { return f == RecordOptions::Flac24 ? ".flac" : ".wav"; }
+    /** WAV files cannot exceed 4 GiB (32-bit RIFF sizes): the automatic split keeps every WAV part below this. */
+    static constexpr juce::int64 kWavMaxFileBytes = 4000000000ll;
+    /** Frames per automatic file part for the given options (0 = never split): the smaller of maxFileSeconds, maxFileBytes
+        (uncompressed PCM size of the widest track, header allowance included) and, for WAV, kWavMaxFileBytes. */
+    static std::int64_t partFramesFor(const RecordOptions&, double sampleRate, int maxTrackChannels);
 
     RecorderEngine();
     ~RecorderEngine();
@@ -136,6 +156,8 @@ public:
     void drainForTesting();
     /** Replace file streams (e.g. to simulate a full disk). nullptr restores FileOutputStream. */
     void setOutputStreamFactoryForTesting(OutputStreamFactory);
+    /** Replace the free-disk-space query (nullptr restores File::getBytesFreeOnVolume). */
+    void setFreeSpaceProviderForTesting(FreeSpaceProvider);
     /** FIFO + pre-roll bytes currently allocated (memory-hygiene tests). */
     std::size_t getAllocatedBytes() const;
 
@@ -200,6 +222,11 @@ private:
     std::array<std::atomic<bool>, kMaxTracks> trackErrors {};
     juce::File lastSessionFile;
     OutputStreamFactory streamFactory;
+    FreeSpaceProvider freeSpaceProvider;
+    std::atomic<bool> lowDiskFlag { false }, diskStoppedFlag { false };
+    std::atomic<double> diskSecondsLeft { -1.0 };
+    SessionInfo lastWrittenInfo;
+    juce::int64 freeBytes(const juce::File& folder) const;
     juce::uint32 lastFlushMs = 0, lastDiskCheckMs = 0;
 
     mutable juce::CriticalSection errorLock;

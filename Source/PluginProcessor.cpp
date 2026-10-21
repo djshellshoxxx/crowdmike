@@ -174,9 +174,14 @@ void CrowdMikeAudioProcessor::rebuildRecorderTracks()
         appliedPreRoll = show.recorder.preRollSeconds;
         recorder.setPreRollSeconds(show.recorder.preRollSeconds);
     }
+    // cue / monitor output (RECORDING_SPEC 14) and record-with-transport (RECORDING_SPEC 6)
+    engine.monitor().setPair(show.recorder.monitorPair);
+    engine.monitor().setGainDb(show.recorder.monitorGainDb);
+    engine.transportRecord().setEnabled(show.recorder.autoRecordOnTransport);
     for (int t = 0; t < kMaxRecordTracks; ++t) {
         const auto& s = show.recorder.tracks[static_cast<size_t>(t)];
         const bool used = TapMap::isValid(s.sourceId);
+        engine.monitor().setTrackMonitored(t, used && s.monitor && !s.muted);
         const int channels = used ? juce::jlimit(1, 2, juce::jmin(s.numChannels, TapMap::channelsFor(s.sourceId))) : 1;
         // The engine decides which tap feeds each track (unused / muted tracks too, -1 = no source).
         engine.setTrackSource(t, used ? s.sourceId : -1, channels);
@@ -200,7 +205,11 @@ bool CrowdMikeAudioProcessor::startRecording()
     const auto& r = show.recorder;
     options.folder = r.folder.isNotEmpty() ? juce::File(r.folder)
                                            : juce::File::getSpecialLocation(juce::File::userMusicDirectory).getChildFile("CrowdMike");
-    options.format = static_cast<rec::RecorderEngine::RecordOptions::Format>(juce::jlimit(0, 2, r.format));
+    options.format = static_cast<rec::RecorderEngine::RecordOptions::Format>(juce::jlimit(0, 3, r.format));
+    options.lowDiskWarnMB = r.lowDiskWarnMB;
+    options.lowDiskStopMB = r.lowDiskStopMB;
+    options.exportMarkers = r.exportMarkers;
+    options.tempoBpm = engine.getLastTempoBpm();
     options.namePattern = r.pattern;
     options.scene = getCurrentSceneName();
     options.show = r.show;
@@ -269,6 +278,8 @@ void writeClipSettings(juce::ValueTree& n, const rec::PlaybackEngine::ClipSettin
     n.setProperty("reverse", c.reverse, nullptr);
     n.setProperty("route", c.route, nullptr);
     n.setProperty("tempoSync", c.tempoSync, nullptr);
+    n.setProperty("syncQuant", c.syncQuantise, nullptr);
+    n.setProperty("syncBeats", c.syncLoopBeats, nullptr);
 }
 rec::PlaybackEngine::ClipSettings readClipSettings(const juce::ValueTree& n)
 {
@@ -283,6 +294,8 @@ rec::PlaybackEngine::ClipSettings readClipSettings(const juce::ValueTree& n)
     c.reverse = static_cast<bool>(n["reverse"]);
     c.route = juce::jlimit(0, rec::PlaybackEngine::kNumDestinations - 1, static_cast<int>(n["route"]));
     c.tempoSync = static_cast<bool>(n["tempoSync"]);
+    c.syncQuantise = juce::jlimit(0, rec::PlaybackEngine::kNumQuantise - 1, static_cast<int>(n.getProperty("syncQuant", 4)));
+    c.syncLoopBeats = juce::jlimit(0.0, 256.0, static_cast<double>(n.getProperty("syncBeats", 0.0)));
     return c;
 }
 void writeBed(juce::ValueTree& n, const rec::PlaybackEngine::BedSettings& b)
@@ -514,6 +527,11 @@ void CrowdMikeAudioProcessor::timerCallback()
     }
     if (edge(ParamBank::index(Mod::Global, 0, G::RecordAll), lastRecordAll)) {
         if (isRecording()) stopRecording(); else startRecording();
+    }
+    switch (engine.transportRecord().poll(isRecording())) {   // record with the host transport
+        case rec::TransportRecordTrigger::Action::Start: if (startRecording()) engine.transportRecord().noteStarted(); break;
+        case rec::TransportRecordTrigger::Action::Stop: stopRecording(); break;
+        case rec::TransportRecordTrigger::Action::None: break;
     }
     if (++riskTicks >= 4) { riskTicks = 0; updateFeedbackRisk(); }   // 20 Hz timer -> ~200 ms
     reportService.poll(juce::Time::getMillisecondCounterHiRes() * 0.001);   // gates itself to 1 Hz

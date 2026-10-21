@@ -33,9 +33,11 @@
 #include "Engine/MasterBus.h"
 #include "Engine/OutputStage.h"
 #include "Engine/TapMap.h"
+#include "Recording/MonitorBus.h"
 #include "Recording/PlaybackEngine.h"
 #include "Recording/RecorderEngine.h"
 #include "Recording/SoundcheckPlayer.h"
+#include "Recording/TransportRecordTrigger.h"
 #include "Routing/RoutingState.h"
 
 namespace crowdmike {
@@ -77,6 +79,12 @@ public:
     void requestClipTrigger(int slot) noexcept;
     // Onset/tempo analyser for the Auto tempo source; fed from the audio thread while tempo.source == Auto.
     dsp::BeatTracker& beatTracker() noexcept { return beat; }
+    // Recorder monitor / cue output (RECORDING_SPEC 14): which tracks and which output pair. Any thread.
+    rec::MonitorBus& monitor() noexcept { return monitorBus; }
+    // Host transport edge detector for "record with transport" (RECORDING_SPEC 6); polled by the message thread.
+    rec::TransportRecordTrigger& transportRecord() noexcept { return transportTrigger; }
+    // Last tempo seen in BlockInfo (0 = none yet). Any thread.
+    double getLastTempoBpm() const noexcept { return lastBpm.load(std::memory_order_relaxed); }
 
     // Analysis objects for the GUI (thread-safe by their own contracts)
     dsp::FeedbackDetector& feedback() noexcept { return feedbackDetector; }
@@ -97,6 +105,7 @@ private:
     void processChunk(juce::AudioBuffer<float>& host, int offset, int n, const BlockInfo& info) noexcept;
     void syncRouting(float rampMs) noexcept;
     void pushTaps(int n) noexcept;
+    void mixMonitor(int n) noexcept;
     void tapPointers(int tapId, const float* out[2], int& channels) const noexcept;
     // Performer ducker (docs/DUCKER_SPEC.md): fills duckGL/duckGR/duckFL/duckFR with the buses the master sum and the bus matrix use.
     void applyDucker(const float* globalParams, int ins, int n, bool bypass) noexcept;
@@ -165,6 +174,9 @@ private:
     int recallSamplesLeft = 0;
     float activeRecallMs = 0.0f;
     std::atomic<int> feedbackTap { 0 };
+    rec::MonitorBus monitorBus;
+    rec::TransportRecordTrigger transportTrigger;
+    std::atomic<double> lastBpm { 0.0 };
     std::array<std::atomic<int>, kMaxRecordTracks> trackSource {};
     std::array<std::atomic<int>, kMaxRecordTracks> trackChannels {};
     double cpuSmoothed = 0.0;

@@ -119,6 +119,12 @@ juce::ValueTree ShowModel::toValueTree() const {
     r.setProperty("pattern", recorder.pattern, nullptr);
     r.setProperty("show", recorder.show, nullptr);
     r.setProperty("venue", recorder.venue, nullptr);
+    r.setProperty("monitorPair", recorder.monitorPair, nullptr);
+    r.setProperty("monitorGainDb", recorder.monitorGainDb, nullptr);
+    r.setProperty("autoRecord", recorder.autoRecordOnTransport, nullptr);
+    r.setProperty("exportMarkers", recorder.exportMarkers, nullptr);
+    r.setProperty("lowDiskWarnMB", recorder.lowDiskWarnMB, nullptr);
+    r.setProperty("lowDiskStopMB", recorder.lowDiskStopMB, nullptr);
     for (int i = 0; i < kMaxRecordTracks; ++i) {
         const auto& tr = recorder.tracks[static_cast<size_t>(i)];
         if (tr.sourceId < 0) continue;
@@ -212,7 +218,7 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
     }
     if (auto r = t.getChildWithName("Recorder"); r.isValid()) {
         recorder.folder = r["folder"].toString();
-        recorder.format = juce::jlimit(0, 2, static_cast<int>(r["format"]));
+        recorder.format = juce::jlimit(0, 3, static_cast<int>(r["format"]));
         recorder.preRollSeconds = juce::jlimit(0, 60, static_cast<int>(r["preRoll"]));
         recorder.postRollSeconds = juce::jlimit(0, 30, static_cast<int>(r["postRoll"]));
         recorder.maxFileSeconds = juce::jmax(0.0, static_cast<double>(r["maxSeconds"]));
@@ -220,6 +226,12 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         if (r["pattern"].toString().isNotEmpty()) recorder.pattern = r["pattern"].toString();
         recorder.show = r["show"].toString();
         recorder.venue = r["venue"].toString();
+        recorder.monitorPair = r.hasProperty("monitorPair") ? juce::jlimit(-1, kMaxOutputs / 2 - 1, static_cast<int>(r["monitorPair"])) : -1;
+        recorder.monitorGainDb = r.hasProperty("monitorGainDb") ? juce::jlimit(-60.0f, 12.0f, static_cast<float>(static_cast<double>(r["monitorGainDb"]))) : 0.0f;
+        recorder.autoRecordOnTransport = r.hasProperty("autoRecord") && static_cast<bool>(r["autoRecord"]);
+        recorder.exportMarkers = r.hasProperty("exportMarkers") && static_cast<bool>(r["exportMarkers"]);
+        recorder.lowDiskWarnMB = r.hasProperty("lowDiskWarnMB") ? juce::jlimit(0, 100000, static_cast<int>(r["lowDiskWarnMB"])) : 500;
+        recorder.lowDiskStopMB = r.hasProperty("lowDiskStopMB") ? juce::jlimit(0, 100000, static_cast<int>(r["lowDiskStopMB"])) : 100;
         for (auto tt : r) {
             const int i = tt["i"];
             if (i < 0 || i >= kMaxRecordTracks) continue;

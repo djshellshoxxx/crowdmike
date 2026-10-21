@@ -36,6 +36,7 @@ struct SessionInfo {
     };
     juce::String appVersion, startTimeIso, scene, show, venue, fileFormat;
     double sampleRate = 0.0;
+    double tempoBpm = 0.0;          // tempo at the start of the take, 0 = unknown
     int take = 0;
     juce::int64 startFrame = 0;     // absolute engine frame of the first recorded frame
     juce::int64 preRollFrames = 0;

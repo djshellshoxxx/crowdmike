@@ -49,7 +49,7 @@ struct RecTrackSetting {
 
 struct RecorderSettings {
     juce::String folder;
-    int format = 1;             // 0 = 16-bit, 1 = 24-bit, 2 = 32-bit float
+    int format = 1;             // 0 = WAV 16-bit, 1 = WAV 24-bit, 2 = WAV 32-bit float, 3 = FLAC 24-bit
     int preRollSeconds = 0;
     int postRollSeconds = 0;
     double maxFileSeconds = 0.0;
@@ -57,6 +57,13 @@ struct RecorderSettings {
     juce::String pattern = "{date}_{time}_{scene}_{source}";
     juce::String show, venue;
     std::array<RecTrackSetting, kMaxRecordTracks> tracks {};
+    // ---- appended (RECORDING_SPEC 6, 8, 14); defaults reproduce the behaviour of older shows
+    int monitorPair = -1;               // cue output pair (2k, 2k+1) fed by the MON tracks, -1 = monitor off
+    float monitorGainDb = 0.0f;         // cue level, -60..+12 dB
+    bool autoRecordOnTransport = false; // start / stop takes with the host transport
+    bool exportMarkers = false;         // write marker CSV + Audacity labels next to each session file
+    int lowDiskWarnMB = 500;            // warn below this much free space (0 = off)
+    int lowDiskStopMB = 100;            // end the take cleanly below this (0 = off)
 };
 
 struct UiSettings {

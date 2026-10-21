@@ -1,5 +1,6 @@
 #include "RecorderEngine.h"
 #include "FileNaming.h"
+#include "MarkerExport.h"
 #include <algorithm>
 #include <cstring>
 
@@ -98,7 +99,7 @@ struct RecorderEngine::Session {
     juce::StringArray takenPaths;
     size_t markerStart = 0;
     int bits = 24;
-    bool isFloat = false;
+    bool isFloat = false, flac = false;
     bool rotatedThisPass = false;
     std::int64_t lastPos = -1;
     juce::uint32 lastPosChangeMs = 0;
@@ -280,7 +281,7 @@ bool RecorderEngine::openPartFile(SessionTrack& st, juce::String& err) {
     auto& s = *session;
     auto base = st.baseName;
     if (st.part > 1) base << "_part" << juce::String(st.part).paddedLeft('0', 3);
-    const auto file = FileNaming::uniqueFile(s.opts.folder, base, ".wav", s.takenPaths);
+    const auto file = FileNaming::uniqueFile(s.opts.folder, base, RecorderEngine::extensionFor(s.opts.format), s.takenPaths);
     s.takenPaths.add(file.getFullPathName());
 
     std::unique_ptr<juce::OutputStream> os;
@@ -306,12 +307,17 @@ bool RecorderEngine::openPartFile(SessionTrack& st, juce::String& err) {
                           .withNumChannels(st.numChannels)
                           .withBitsPerSample(s.bits)
                           .withSampleFormat(s.isFloat ? SF::floatingPoint : SF::integral);
-    juce::WavAudioFormat wav;
-    st.writer = wav.createWriterFor(os, opts);
+    if (s.flac) {
+        juce::FlacAudioFormat flac;
+        st.writer = flac.createWriterFor(os, opts);
+    } else {
+        juce::WavAudioFormat wav;
+        st.writer = wav.createWriterFor(os, opts);
+    }
     if (st.writer == nullptr) {
         os.reset();
         if (st.realFile) file.deleteFile();
-        err = "Cannot create WAV writer for " + file.getFullPathName();
+        err = juce::String("Cannot create ") + (s.flac ? "FLAC" : "WAV") + " writer for " + file.getFullPathName();
         return false;
     }
     st.file = file;
@@ -546,6 +552,7 @@ void RecorderEngine::writeSessionJsonLocked() {
     }
     juce::String err;
     if (! SessionMetadata::write(s.jsonFile, info, err)) { totalErrors.fetch_add(1); setError(err); }
+    lastWrittenInfo = info;
     lastSessionFile = s.jsonFile;
 }
 
@@ -553,6 +560,10 @@ void RecorderEngine::finaliseTakeLocked() {
     if (session == nullptr) return;
     for (auto& st : session->tracks) closePart(st);
     writeSessionJsonLocked();
+    if (session->opts.exportMarkers) {
+        juce::String err;
+        if (! MarkerExport::writeAll(session->jsonFile, lastWrittenInfo, err)) { totalErrors.fetch_add(1); setError(err); }
+    }
     recActive.store(false, std::memory_order_release);
     stopFrame.store(kNoFrame, std::memory_order_release);
     startLatched = false;
@@ -617,9 +628,22 @@ void RecorderEngine::processOnceLocked() {
                 st.writer->flush();
             }
         }
-        if (now - lastDiskCheckMs >= 2000) {
+        if (now - lastDiskCheckMs >= 1000 && s.opts.folder.isDirectory()) {   // a removed destination is reported by the flush check
             lastDiskCheckMs = now;
-            freeDiskGB = s.opts.folder.isDirectory() ? (double) s.opts.folder.getBytesFreeOnVolume() / 1.0e9 : 0.0;
+            const auto freeB = freeBytes(s.opts.folder);
+            freeDiskGB = (double) freeB / 1.0e9;
+            std::int64_t bytesPerSec = 0;
+            for (auto& st : s.tracks) bytesPerSec += (std::int64_t) ((double) st.numChannels * s.bits / 8.0 * sampleRate);
+            diskSecondsLeft = bytesPerSec > 0 ? (double) freeB / (double) bytesPerSec : -1.0;
+            const auto warn = (juce::int64) s.opts.lowDiskWarnMB * 1000000ll, stopB = (juce::int64) s.opts.lowDiskStopMB * 1000000ll;
+            lowDiskFlag = warn > 0 && freeB < warn;
+            if (stopB > 0 && freeB < stopB && stopFrame.load() == kNoFrame) {   // end the take cleanly before the disk fills up
+                diskStoppedFlag = true;
+                totalErrors.fetch_add(1);
+                setError("Disk almost full (" + juce::String((double) freeB / 1.0e6, 0) + " MB left): recording stopped");
+                stopFrame.store(std::max(pos, startFrame.load()), std::memory_order_release);
+                postRollRunning = false;
+            }
         }
     }
 }
@@ -645,12 +669,17 @@ bool RecorderEngine::startRecording(const RecordOptions& o) {
             return fail("Cannot create record folder " + o.folder.getFullPathName() + ": " + r.getErrorMessage());
     }
 
+    const auto freeB = freeBytes(o.folder);
+    if (o.lowDiskStopMB > 0 && freeB >= 0 && freeB < (juce::int64) o.lowDiskStopMB * 1000000ll)
+        return fail("Not enough free disk space in " + o.folder.getFullPathName() + " (" + juce::String((double) freeB / 1.0e6, 0) + " MB free)");
+
     session = std::make_unique<Session>();
     auto& s = *session;
     s.opts = o;
     s.trackIndex.fill(-1);
-    s.bits = o.format == RecordOptions::Wav16 ? 16 : o.format == RecordOptions::Wav24 ? 24 : 32;
+    s.bits = bitsFor(o.format);
     s.isFloat = o.format == RecordOptions::Wav32f;
+    s.flac = o.format == RecordOptions::Flac24;
     const auto nowTime = juce::Time::getCurrentTime();
     const int take = takeCounter + 1;
     NameTokens tok { nowTime, o.scene, {}, o.show, o.venue, take };
@@ -661,7 +690,8 @@ bool RecorderEngine::startRecording(const RecordOptions& o) {
     s.info.sampleRate = sampleRate;
     s.info.take = take;
     s.info.scene = o.scene; s.info.show = o.show; s.info.venue = o.venue;
-    s.info.fileFormat = s.isFloat ? "wav32f" : (s.bits == 16 ? "wav16" : "wav24");
+    s.info.fileFormat = s.flac ? "flac24" : (s.isFloat ? "wav32f" : (s.bits == 16 ? "wav16" : "wav24"));
+    s.info.tempoBpm = o.tempoBpm > 0.0 ? o.tempoBpm : 0.0;
     s.info.routeSnapshot = o.routeSnapshot;
 
     int maxCh = 1;
@@ -684,15 +714,7 @@ bool RecorderEngine::startRecording(const RecordOptions& o) {
     tok.source = {};
     s.jsonFile = FileNaming::uniqueFile(o.folder, FileNaming::expandPattern(pattern, tok) + "_session", ".json", s.takenPaths);
 
-    std::int64_t partFrames = 0;
-    if (o.maxFileSeconds > 0.0) partFrames = (std::int64_t) std::llround(o.maxFileSeconds * sampleRate);
-    if (o.maxFileBytes > 0) {
-        const auto bytesPerFrame = (std::int64_t) maxCh * s.bits / 8;
-        const auto f = std::max<std::int64_t>(0, o.maxFileBytes - 4096) / bytesPerFrame;
-        partFrames = partFrames > 0 ? std::min(partFrames, f) : f;
-    }
-    if (o.maxFileSeconds > 0.0 || o.maxFileBytes > 0) partFrames = std::max<std::int64_t>(partFrames, 1024);
-    s.maxPartFrames = partFrames;
+    s.maxPartFrames = partFramesFor(o, sampleRate, maxCh);
     s.preRollFramesWanted = (std::int64_t) std::llround(std::min((double) juce::jlimit(0, 60, o.preRollSeconds),
                                                                   preRollEffective.load()) * sampleRate);
     {
@@ -701,9 +723,11 @@ bool RecorderEngine::startRecording(const RecordOptions& o) {
         markerScene = o.scene;
     }
     for (auto& e : trackErrors) e = false;
+    lowDiskFlag = false;
+    diskStoppedFlag = false;
     takeCounter = take;
     currentTake = take;
-    freeDiskGB = (double) o.folder.getBytesFreeOnVolume() / 1.0e9;
+    freeDiskGB = (double) freeB / 1.0e9;
     sessionOpen = true;
     postRollRunning = false;
     statusFrames = 0;
@@ -815,6 +839,9 @@ RecorderEngine::Status RecorderEngine::getStatus() const {
     s.take = currentTake.load();
     s.preRollSeconds = preRollEffective.load();
     s.preRollClipped = preRollClipped.load();
+    s.lowDisk = lowDiskFlag.load();
+    s.diskStopped = diskStoppedFlag.load();
+    s.diskSecondsLeft = diskSecondsLeft.load();
     const juce::ScopedLock sl(errorLock);
     s.lastError = lastError;
     return s;
@@ -847,6 +874,29 @@ void RecorderEngine::drainForTesting() {
 void RecorderEngine::setOutputStreamFactoryForTesting(OutputStreamFactory f) {
     const juce::ScopedLock sl(writerLock);
     streamFactory = std::move(f);
+}
+
+void RecorderEngine::setFreeSpaceProviderForTesting(FreeSpaceProvider f) {
+    const juce::ScopedLock sl(writerLock);
+    freeSpaceProvider = std::move(f);
+}
+
+juce::int64 RecorderEngine::freeBytes(const juce::File& folder) const {
+    return freeSpaceProvider ? freeSpaceProvider(folder) : folder.getBytesFreeOnVolume();
+}
+
+std::int64_t RecorderEngine::partFramesFor(const RecordOptions& o, double sr, int maxCh) {
+    std::int64_t partFrames = 0;
+    if (o.maxFileSeconds > 0.0) partFrames = (std::int64_t) std::llround(o.maxFileSeconds * sr);
+    std::int64_t maxBytes = o.maxFileBytes;
+    if (o.format != RecordOptions::Flac24) maxBytes = maxBytes > 0 ? std::min<std::int64_t>(maxBytes, kWavMaxFileBytes) : kWavMaxFileBytes;
+    if (maxBytes > 0) {
+        const auto bytesPerFrame = std::max<std::int64_t>(1, (std::int64_t) std::max(1, maxCh) * bitsFor(o.format) / 8);
+        const auto f = std::max<std::int64_t>(0, maxBytes - 4096) / bytesPerFrame;
+        partFrames = partFrames > 0 ? std::min(partFrames, f) : f;
+    }
+    if (partFrames > 0) partFrames = std::max<std::int64_t>(partFrames, 1024);
+    return partFrames;
 }
 
 std::size_t RecorderEngine::getAllocatedBytes() const {

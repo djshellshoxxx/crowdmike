@@ -82,9 +82,19 @@ public:
         kit::setupToggle(reverse, "Reverse", "Play the trimmed region backwards", palette().accentDim);
         reverse.setComponentID("play.reverse");
         reverse.onClick = [this] { auto s = settings(); s.reverse = reverse.getToggleState(); kit::refreshToggleText(reverse, "Reverse"); commit(s); };
-        kit::setupToggle(sync, "Sync", "Tempo sync: trigger on the host beat grid where host tempo exists (stored with the clip)", palette().accentDim);
+        kit::setupToggle(sync, "Sync", "Tempo sync: triggers wait for the next grid line of the host / engine tempo (immediate when no tempo is available)", palette().accentDim);
         sync.setComponentID("play.sync");
         sync.onClick = [this] { auto s = settings(); s.tempoSync = sync.getToggleState(); kit::refreshToggleText(sync, "Sync"); commit(s); };
+        for (int q = 0; q < rec::PlaybackEngine::kNumQuantise; ++q) {
+            static const char* const names[] = { "1/16 note", "1/8 note", "1 beat", "2 beats", "1 bar", "2 bars" };
+            syncGrid.addItem(names[q], q + 1);
+        }
+        syncGrid.setTitle("Sync grid");
+        syncGrid.setTooltip("Tempo sync grid: a trigger starts on the next multiple of this length (bar = 4 beats)");
+        syncGrid.setComponentID("play.syncGrid");
+        syncGrid.onChange = [this] { auto s = settings(); s.syncQuantise = syncGrid.getSelectedId() - 1; commit(s); };
+        setupSlider(syncBeats, 0.0, 64.0, 0.25, " beats", "Loop beats: with Loop + Sync the loop restarts every this many beats, locked to the tempo grid (0 = natural clip length)", "play.syncBeats");
+        syncBeats.onValueChange = [this] { auto s = settings(); s.syncLoopBeats = syncBeats.getValue(); commit(s); };
         setupSlider(gain, -60.0, 12.0, 0.1, " dB", "Gain: clip level", "play.gain", -12.0);
         gain.onValueChange = [this] { auto s = settings(); s.gainDb = static_cast<float>(gain.getValue()); commit(s); };
         setupSlider(fadeIn, 0.0, 10000.0, 1.0, " ms", "Fade in: ramp from each (re)trigger", "play.fadeIn", 500.0);
@@ -109,13 +119,14 @@ public:
         kit::setupButton(clearMidi, "Remove MIDI trigger / stop bindings of this clip", "play.clearMidi");
         clearMidi.onClick = [this] { proc.getHub().removeBindingsFor(BindTarget::ClipTrigger, slot); proc.getHub().removeBindingsFor(BindTarget::ClipStop, slot); refresh(); };
         kit::styleLabel(assignInfo, 11.5f, false, true);
-        for (auto* l : { &lMode, &lGain, &lFadeIn, &lFadeOut, &lAssign }) { kit::styleLabel(*l, 12.0f, false, true); addAndMakeVisible(*l); }
+        for (auto* l : { &lMode, &lGain, &lFadeIn, &lFadeOut, &lAssign, &lSync }) { kit::styleLabel(*l, 12.0f, false, true); addAndMakeVisible(*l); }
+        lSync.setText("Tempo sync", juce::dontSendNotification);
         lMode.setText("Mode / route", juce::dontSendNotification);
         lGain.setText("Levels / gain", juce::dontSendNotification);
         lFadeIn.setText("Fade in", juce::dontSendNotification);
         lFadeOut.setText("Fade out", juce::dontSendNotification);
         lAssign.setText("Assign", juce::dontSendNotification);
-        for (auto* c2 : std::initializer_list<juce::Component*> { &load, &unload, &trigger, &stop, &mode, &route, &reverse, &sync, &gain, &fadeIn, &fadeOut,
+        for (auto* c2 : std::initializer_list<juce::Component*> { &load, &unload, &trigger, &stop, &mode, &route, &reverse, &sync, &syncGrid, &syncBeats, &gain, &fadeIn, &fadeOut,
                                                                   &hotkeyButton, &clearKey, &learnTrig, &learnStop, &clearMidi, &assignInfo })
             addAndMakeVisible(c2);
         setWantsKeyboardFocus(true);
@@ -137,6 +148,10 @@ public:
         route.setSelectedId(s.route + 1, juce::dontSendNotification);
         reverse.setToggleState(s.reverse, juce::dontSendNotification);
         sync.setToggleState(s.tempoSync, juce::dontSendNotification);
+        syncGrid.setSelectedId(s.syncQuantise + 1, juce::dontSendNotification);
+        syncBeats.setValue(s.syncLoopBeats, juce::dontSendNotification);
+        syncGrid.setEnabled(s.tempoSync);
+        syncBeats.setEnabled(s.tempoSync);
         kit::refreshToggleText(reverse, "Reverse");
         kit::refreshToggleText(sync, "Sync");
         gain.setValue(s.gainDb, juce::dontSendNotification);
@@ -158,11 +173,20 @@ public:
         if (missing) text = juce::String::fromUTF8("\xe2\x9c\x95 MISSING: ") + path;
         else if (inf.loading) text = "Loading " + path;
         else if (inf.error.isNotEmpty()) text = juce::String::fromUTF8("\xe2\x9c\x95 ERROR: ") + inf.error;
-        else if (inf.loaded) text = kit::formatClock(inf.durationSeconds, true) + "  " + juce::String(inf.numChannels) + " ch  " + juce::String(inf.sourceSampleRate / 1000.0, 1) + " kHz  " + path;
+        else if (inf.loaded) text = kit::formatClock(inf.durationSeconds, true) + "  " + juce::String(inf.numChannels) + " ch  " + juce::String(inf.sourceSampleRate / 1000.0, 1) + " kHz"
+                                    + (inf.streaming ? "  STREAMED" : "") + (inf.syncPending ? "  WAITING FOR BEAT" : "") + "  " + path;
         else text = "Empty slot: Load a WAV, AIFF or FLAC file";
         info.setText(text, juce::dontSendNotification);
         info.setTooltip(text);
-        info.setColour(juce::Label::textColourId, missing || inf.error.isNotEmpty() ? palette().danger : palette().textMuted);
+        const auto streamStats = proc.getPlayback().getStreamStats();
+        if (streamStats.underrunEvents != lastUnderruns) {
+            lastUnderruns = streamStats.underrunEvents;
+            underrunUntilMs = juce::Time::getMillisecondCounter() + 6000;
+            ctx.say("Playback stream underrun: the disk could not keep up (silence inserted)", true);
+        }
+        const bool underrunNow = juce::Time::getMillisecondCounter() < underrunUntilMs;
+        if (underrunNow && inf.streaming) { text << "  UNDERRUN"; info.setText(text, juce::dontSendNotification); }
+        info.setColour(juce::Label::textColourId, missing || inf.error.isNotEmpty() || (underrunNow && inf.streaming) ? palette().danger : palette().textMuted);
         if (inf.loaded != loadedShown) {
             loadedShown = inf.loaded;
             std::vector<float> mn(rec::PlaybackEngine::kWaveformPoints), mx(rec::PlaybackEngine::kWaveformPoints);
@@ -198,11 +222,12 @@ public:
         r.removeFromTop(4);
         info.setBounds(r.removeFromTop(16));
         r.removeFromTop(4);
-        const int waveH = juce::jlimit(32, 260, r.getHeight() - (rowH + 6) * 3 - 24);
+        const int waveH = juce::jlimit(32, 260, r.getHeight() - (rowH + 6) * 4 - 24);
         wave.setBounds(r.removeFromTop(waveH));
         r.removeFromTop(8);
         auto line = [&](juce::Label& l) { auto row = r.removeFromTop(rowH); r.removeFromTop(6); l.setBounds(row.removeFromLeft(90)); return row; };
         kit::layoutRow(line(lMode), { { &mode, 1.0f }, { &route, 1.6f }, { &reverse, -96.0f }, { &sync, -80.0f } });
+        kit::layoutRow(line(lSync), { { &syncGrid, 1.0f }, { &syncBeats, 2.0f } });
         {
             auto row = line(lGain);
             const int third = (row.getWidth() - 24) / 3;
@@ -242,7 +267,11 @@ private:
     CrowdMikeAudioProcessor& proc;
     int slot = 0;
     bool capturingKey = false, loadedShown = false, missing = false;
-    juce::Label title, info, assignInfo, lMode, lGain, lFadeIn, lFadeOut, lAssign;
+    juce::uint64 lastUnderruns = 0;
+    juce::uint32 underrunUntilMs = 0;
+    juce::Label title, info, assignInfo, lMode, lGain, lFadeIn, lFadeOut, lAssign, lSync;
+    juce::ComboBox syncGrid;
+    juce::Slider syncBeats;
     juce::TextEditor nameEdit;
     juce::TextButton load, unload, trigger, stop, reverse, sync, hotkeyButton, clearKey, learnTrig, learnStop, clearMidi;
     ClipWaveformView wave { true };
@@ -276,7 +305,7 @@ public:
         const char* names[] = { "Source / route", "Loop min", "Loop max", "Crossfade", "Variation", "Low-pass", "Gain" };
         for (auto* n : names) { auto* l = labels.add(new juce::Label({}, n)); kit::styleLabel(*l, 12.0f, false, true); addAndMakeVisible(l); }
         kit::styleLabel(note, 11.5f, false, true);
-        note.setText("The bed loops random regions of the source clip with crossfades and slow level drift. It ducks out on Panic and fades back in.", juce::dontSendNotification);
+        note.setText("The bed loops random regions of the source clip with crossfades and slow level drift. It ducks out on Panic and fades back in. Long clips are streamed from disk (regions of at least 3 s).", juce::dontSendNotification);
         for (auto* c2 : std::initializer_list<juce::Component*> { &enabled, &source, &route, &note }) addAndMakeVisible(c2);
     }
 
