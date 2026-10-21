@@ -153,6 +153,8 @@ private:
     std::array<dsp::Smoother, kMaxInputs * kNumFx> inSend {};
     std::array<dsp::Smoother, kMaxGroups * kNumFx> grpSend {};
     dsp::Smoother outGain, bypassMix;
+    dsp::Smoother playbackLevel;      // global `playbackLevelDb`: master gain of every clip and the crowd bed (all playback destinations)
+    bool playbackLevelInit = false;
 
     // Buffers
     EngineBuffer raw, proc, preDyn, groupL, groupR, sendL, sendR, retL, retR, pbL, pbR, mastBuf, preMix, outBuf, dryBuf;
