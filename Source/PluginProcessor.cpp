@@ -1,90 +1,79 @@
 #include "PluginProcessor.h"
+#include "Core/PresetManager.h"
+#include "Core/StateIO.h"
+#include "Engine/InputRisk.h"
 #include "PluginEditor.h"
+#include "Routing/WiringTemplates.h"
 #include <cmath>
 
-namespace {
-constexpr auto stateType = "CrowdMikeState";
-constexpr float defaultHighPassHz = 80.0f;
-constexpr float defaultLowPassHz = 18000.0f;
-}
+using namespace crowdmike;
 
 CrowdMikeAudioProcessor::CrowdMikeAudioProcessor()
     : AudioProcessor(BusesProperties()
-        .withInput("Input", juce::AudioChannelSet::stereo(), true)
-        .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      parameters(*this, nullptr, stateType, createParameterLayout())
+          .withInput("Input", juce::AudioChannelSet::stereo(), true)
+          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      parameters(*this, &undoManager, StateIO::kStateType, ParamBank::createLayout()),
+      scenes(parameters, routing, show),
+      hub(parameters, scenes, show),
+      osc(hub)
 {
-    for (int inputIndex = 0; inputIndex < crowdmike::RoutingMatrix::maxChannels; ++inputIndex) {
-        auto& pointers = inputParameters[static_cast<size_t>(inputIndex)];
-        pointers.trimDb = parameters.getRawParameterValue(inputParameterId(inputIndex, "trimDb"));
-        pointers.muted = parameters.getRawParameterValue(inputParameterId(inputIndex, "mute"));
-        pointers.polarityInverted = parameters.getRawParameterValue(inputParameterId(inputIndex, "polarity"));
-        pointers.highPassEnabled = parameters.getRawParameterValue(inputParameterId(inputIndex, "highPassEnabled"));
-        pointers.highPassHz = parameters.getRawParameterValue(inputParameterId(inputIndex, "highPassHz"));
-        pointers.lowPassEnabled = parameters.getRawParameterValue(inputParameterId(inputIndex, "lowPassEnabled"));
-        pointers.lowPassHz = parameters.getRawParameterValue(inputParameterId(inputIndex, "lowPassHz"));
+    bank.attach(parameters);
+    bank.publishMacros(show.macros);
+    routing.resetDirectDefault(2, 2);
+    engine.setServices({ &bank, &routing, &recorder, &playback, &soundcheck });
+    scenes.onRecallRamp = [this](float ms) { engine.setRecallRampMs(ms); };
+    hub.actions.recordStart = [this] { startRecording(); };
+    hub.actions.recordStop = [this] { stopRecording(); };
+    hub.actions.recordToggle = [this] { if (isRecording()) stopRecording(); else startRecording(); };
+    hub.actions.splitFile = [this] { recorder.splitFile(); };
+    hub.actions.marker = [this](int type) { addMarker(type); };
+    hub.actions.clipTrigger = [this](int slot) { playback.trigger(slot); };
+    hub.actions.clipStop = [this](int slot) { playback.stop(slot); };
+    hub.actions.stopAllClips = [this] { playback.stopAll(); };
+    if (juce::MessageManager::getInstanceWithoutCreating() != nullptr) {
+        hub.startPolling();
+        startTimerHz(20);
     }
-    limiterCeilingDb = parameters.getRawParameterValue("limiterCeilingDb");
-    resetRequestedRouting(2, 2);
 }
 
-juce::String CrowdMikeAudioProcessor::inputParameterId(int inputIndex, const juce::String& suffix)
+CrowdMikeAudioProcessor::~CrowdMikeAudioProcessor()
 {
-    return "input" + juce::String(inputIndex + 1) + "." + suffix;
+    stopTimer();
+    osc.stop();
+    recorder.shutdown();
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout CrowdMikeAudioProcessor::createParameterLayout()
+juce::AudioProcessorParameter* CrowdMikeAudioProcessor::getBypassParameter() const
 {
-    juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    for (int inputIndex = 0; inputIndex < crowdmike::RoutingMatrix::maxChannels; ++inputIndex) {
-        const auto channelName = "Input " + juce::String(inputIndex + 1);
-        layout.add(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID { inputParameterId(inputIndex, "trimDb"), 1 },
-            channelName + " Trim", juce::NormalisableRange<float> { -60.0f, 24.0f, 0.01f }, 0.0f));
-        layout.add(std::make_unique<juce::AudioParameterBool>(
-            juce::ParameterID { inputParameterId(inputIndex, "mute"), 1 },
-            channelName + " Mute", false));
-        layout.add(std::make_unique<juce::AudioParameterBool>(
-            juce::ParameterID { inputParameterId(inputIndex, "polarity"), 1 },
-            channelName + " Polarity Invert", false));
-        layout.add(std::make_unique<juce::AudioParameterBool>(
-            juce::ParameterID { inputParameterId(inputIndex, "highPassEnabled"), 1 },
-            channelName + " High Pass", false));
-        layout.add(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID { inputParameterId(inputIndex, "highPassHz"), 1 },
-            channelName + " High Pass Frequency",
-            juce::NormalisableRange<float> { 20.0f, 500.0f, 1.0f }, defaultHighPassHz));
-        layout.add(std::make_unique<juce::AudioParameterBool>(
-            juce::ParameterID { inputParameterId(inputIndex, "lowPassEnabled"), 1 },
-            channelName + " Low Pass", false));
-        layout.add(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID { inputParameterId(inputIndex, "lowPassHz"), 1 },
-            channelName + " Low Pass Frequency",
-            juce::NormalisableRange<float> { 2000.0f, 20000.0f, 1.0f }, defaultLowPassHz));
-    }
-    layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID { "limiterCeilingDb", 1 }, "Limiter Ceiling",
-        juce::NormalisableRange<float> { -12.0f, 0.0f, 0.1f }, -0.5f));
-    return layout;
+    return parameters.getParameter(ParamBank::paramId(Mod::Global, 0, params::GlobalP::Bypass));
 }
+
+double CrowdMikeAudioProcessor::getTailLengthSeconds() const { return 4.0; }
 
 void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    const int ins = juce::jlimit(1, crowdmike::RoutingMatrix::maxChannels,
-                                 getTotalNumInputChannels());
-    const int outs = juce::jlimit(1, crowdmike::RoutingMatrix::maxChannels,
-                                  getTotalNumOutputChannels());
-    preparedInputCount = ins;
+    const int ins = juce::jlimit(1, kMaxInputs, getTotalNumInputChannels());
+    const int outs = juce::jlimit(1, kMaxOutputs, getTotalNumOutputChannels());
     activeInputChannels.store(ins, std::memory_order_relaxed);
     activeOutputChannels.store(outs, std::memory_order_relaxed);
-    if (!hasSavedRouting.load(std::memory_order_acquire))
-        resetRequestedRouting(ins, outs);
-    inputScratch.setSize(ins, juce::jmax(1, samplesPerBlock), false, true, false);
-    for (int inputIndex = 0; inputIndex < preparedInputCount; ++inputIndex)
-        inputs[static_cast<size_t>(inputIndex)].prepare(sampleRate, samplesPerBlock, 1);
-    routing.resetToIdentity(ins, outs);
-    routing.prepare(sampleRate);
-    limiter.prepare(sampleRate, samplesPerBlock, outs);
+    if (!routing.hasSavedDirect())
+        routing.resetDirectDefault(ins, outs);
+    preparedSampleRate = sampleRate;
+    preparedBlockSize = samplesPerBlock;
+    engine.prepare(sampleRate, juce::jmax(1, samplesPerBlock), ins, outs);
+    prepareRecordingForLayout(sampleRate, samplesPerBlock);
+    setLatencySamples(engine.getLatencySamples());
+}
+
+void CrowdMikeAudioProcessor::prepareRecordingForLayout(double sampleRate, int blockSize)
+{
+    recorder.prepare(sampleRate, juce::jmax(1, blockSize));
+    playback.prepare(sampleRate, juce::jmax(1, blockSize));
+    soundcheck.prepare(sampleRate, juce::jmax(1, blockSize));
+    for (auto& k : appliedTrackKeys) k.clear();   // the recorder/engine were re-prepared: re-send everything
+    appliedPreRoll = -1;
+    rebuildRecorderTracks();
+    restorePlaybackFromShow();
 }
 
 bool CrowdMikeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -92,72 +81,34 @@ bool CrowdMikeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts)
     const auto in = layouts.getMainInputChannelSet();
     const auto out = layouts.getMainOutputChannelSet();
     return ! in.isDisabled() && ! out.isDisabled()
-        && in.size() >= 1 && in.size() <= crowdmike::RoutingMatrix::maxChannels
-        && out.size() >= 1 && out.size() <= crowdmike::RoutingMatrix::maxChannels;
+        && in.size() >= 1 && in.size() <= kMaxInputs
+        && out.size() >= 1 && out.size() <= kMaxOutputs;
 }
 
-void CrowdMikeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void CrowdMikeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    const int samples = buffer.getNumSamples();
-    const int availableInputs = juce::jmin(getTotalNumInputChannels(), inputScratch.getNumChannels());
-    const int ins = juce::jmin(availableInputs, preparedInputCount);
-    if (samples > inputScratch.getNumSamples()) {
-        // Host supplied more frames than negotiated. Fail silent, never allocate on the audio thread.
-        buffer.clear();
-        return;
-    }
+    if (acceptsMidi() && !midi.isEmpty())
+        hub.queueMidiFromAudioThread(midi);
+    midi.clear();
 
-    for (int inputIndex = 0; inputIndex < ins; ++inputIndex) {
-        auto& strip = inputs[static_cast<size_t>(inputIndex)];
-        const auto& controls = inputParameters[static_cast<size_t>(inputIndex)];
-        strip.setTrimDb(controls.trimDb->load(std::memory_order_relaxed));
-        strip.setMuted(controls.muted->load(std::memory_order_relaxed) >= 0.5f);
-        strip.setPolarityInverted(controls.polarityInverted->load(std::memory_order_relaxed) >= 0.5f);
-        strip.setHighPassEnabled(controls.highPassEnabled->load(std::memory_order_relaxed) >= 0.5f);
-        strip.setHighPassHz(controls.highPassHz->load(std::memory_order_relaxed));
-        strip.setLowPassEnabled(controls.lowPassEnabled->load(std::memory_order_relaxed) >= 0.5f);
-        strip.setLowPassHz(controls.lowPassHz->load(std::memory_order_relaxed));
-    }
-    limiter.setCeilingDb(limiterCeilingDb->load(std::memory_order_relaxed));
-    const int outs = juce::jmin(getTotalNumOutputChannels(), crowdmike::RoutingMatrix::maxChannels);
-    for (int output = 0; output < outs; ++output)
-        for (int input = 0; input < ins; ++input) {
-            const float target = requestedRouteGains[static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input)]
-                                     .load(std::memory_order_relaxed);
-            if (target != routing.getRouteGain(input, output))
-                routing.setTargetRouteGain(input, output, target);
+    BlockInfo info;
+    if (auto* head = getPlayHead()) {
+        if (auto pos = head->getPosition()) {
+            if (auto bpm = pos->getBpm()) { info.bpm = *bpm; info.hasTempo = true; }
+            if (auto ppq = pos->getPpqPosition()) info.ppqPosition = *ppq;
+            info.playing = pos->getIsPlaying();
         }
-
-    inputScratch.clear();
-    for (int ch = 0; ch < ins && ch < buffer.getNumChannels(); ++ch) {
-        inputScratch.copyFrom(ch, 0, buffer, ch, 0, samples);
-        float* channel = inputScratch.getWritePointer(ch);
-        juce::AudioBuffer<float> view(&channel, 1, samples);
-        inputs[static_cast<size_t>(ch)].process(view);
     }
-    juce::AudioBuffer<float> inputView(inputScratch.getArrayOfWritePointers(), ins, samples);
-    routing.process(inputView, buffer);
-    limiter.process(buffer);
+    engine.process(buffer, info);
 }
 
 void CrowdMikeAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
-    auto state = parameters.copyState();
-    state.setProperty("schemaVersion", 1, nullptr);
-    if (auto xml = state.createXml()) {
-        if (hasSavedRouting.load(std::memory_order_acquire)) {
-            auto routes = std::make_unique<juce::XmlElement>("RoutingMatrix");
-            for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
-                for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
-                    const auto key = "r" + juce::String(input + 1) + "_" + juce::String(output + 1);
-                    const auto index = static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input);
-                    routes->setAttribute(key, requestedRouteGains[index].load(std::memory_order_relaxed));
-                }
-            xml->addChildElement(routes.release());
-        }
+    StateIO::EngineConfigInfo cfg { preparedSampleRate, preparedBlockSize,
+                                    activeInputChannels.load(), activeOutputChannels.load() };
+    if (auto xml = StateIO::serialize({ parameters, routing, show, scenes }, cfg))
         copyXmlToBinary(*xml, destination);
-    }
 }
 
 void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
@@ -165,72 +116,387 @@ void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBy
     if (data == nullptr || sizeInBytes <= 0)
         return;
     const auto xml = getXmlFromBinary(data, sizeInBytes);
-    if (xml == nullptr || !xml->hasTagName(stateType)
-        || xml->getIntAttribute("schemaVersion", -1) != 1)
+    if (xml == nullptr)
         return;
-    if (auto* routes = xml->getChildByName("RoutingMatrix")) {
-        for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
-            for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
-                const auto key = "r" + juce::String(input + 1) + "_" + juce::String(output + 1);
-                const double rawGain = routes->getDoubleAttribute(key, 0.0);
-                const float gain = std::isfinite(rawGain)
-                    ? juce::jlimit(-2.0f, 2.0f, static_cast<float>(rawGain)) : 0.0f;
-                const auto index = static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input);
-                requestedRouteGains[index].store(gain, std::memory_order_relaxed);
-            }
-        hasSavedRouting.store(true, std::memory_order_release);
-    } else {
-        hasSavedRouting.store(false, std::memory_order_release);
-        resetRequestedRouting(activeInputChannels.load(std::memory_order_relaxed),
-                              activeOutputChannels.load(std::memory_order_relaxed));
+    const auto result = StateIO::restore({ parameters, routing, show, scenes }, *xml,
+                                         activeInputChannels.load(std::memory_order_relaxed),
+                                         activeOutputChannels.load(std::memory_order_relaxed));
+    if (result == StateIO::Result::Ok)
+        applyShowChanges();
+}
+
+void CrowdMikeAudioProcessor::applyShowChanges()
+{
+    bank.publishMacros(show.macros);
+    rebuildRecorderTracks();
+    restorePlaybackFromShow();
+    if (wrapperType == wrapperType_Standalone) {
+        if (show.osc.enabled) { if (!osc.isRunning()) osc.start(show.osc); }
+        else osc.stop();
     }
-
-    auto parameterState = juce::ValueTree::fromXml(*xml);
-    for (int childIndex = parameterState.getNumChildren() - 1; childIndex >= 0; --childIndex)
-        if (parameterState.getChild(childIndex).getType().toString() == "RoutingMatrix")
-            parameterState.removeChild(childIndex, nullptr);
-    parameters.replaceState(parameterState);
 }
 
-void CrowdMikeAudioProcessor::resetRequestedRouting(int inputChannels, int outputChannels) noexcept
+void CrowdMikeAudioProcessor::rebuildRecorderTracks()
 {
-    crowdmike::RoutingMatrix defaults;
-    defaults.resetToIdentity(inputChannels, outputChannels);
-    for (int output = 0; output < crowdmike::RoutingMatrix::maxChannels; ++output)
-        for (int input = 0; input < crowdmike::RoutingMatrix::maxChannels; ++input) {
-            const float gain = (input < inputChannels && output < outputChannels)
-                ? defaults.getRouteGain(input, output) : 0.0f;
-            requestedRouteGains[static_cast<size_t>(output * crowdmike::RoutingMatrix::maxChannels + input)]
-                .store(gain, std::memory_order_relaxed);
+    if (appliedPreRoll != show.recorder.preRollSeconds) {
+        appliedPreRoll = show.recorder.preRollSeconds;
+        recorder.setPreRollSeconds(show.recorder.preRollSeconds);
+    }
+    for (int t = 0; t < kMaxRecordTracks; ++t) {
+        const auto& s = show.recorder.tracks[static_cast<size_t>(t)];
+        const bool used = TapMap::isValid(s.sourceId);
+        const int channels = used ? juce::jlimit(1, 2, juce::jmin(s.numChannels, TapMap::channelsFor(s.sourceId))) : 1;
+        // The engine decides which tap feeds each track (unused / muted tracks too, -1 = no source).
+        engine.setTrackSource(t, used ? s.sourceId : -1, channels);
+        rec::RecorderEngine::TrackConfig cfg;
+        cfg.sourceId = s.sourceId;
+        cfg.numChannels = channels;
+        cfg.name = s.name.isNotEmpty() ? s.name : (used ? TapMap::defaultName(s.sourceId) : juce::String());
+        cfg.armed = used && s.armed && !s.muted;
+        // setTrack() may wait briefly for the writer thread: only call it when the configuration changed.
+        const auto key = juce::String(cfg.sourceId) + "|" + juce::String(cfg.numChannels) + "|" + (cfg.armed ? "1" : "0") + "|" + cfg.name;
+        if (key == appliedTrackKeys[static_cast<size_t>(t)]) continue;
+        appliedTrackKeys[static_cast<size_t>(t)] = key;
+        recorder.setTrack(t, cfg);
+    }
+}
+
+bool CrowdMikeAudioProcessor::startRecording()
+{
+    rebuildRecorderTracks();
+    rec::RecorderEngine::RecordOptions options;
+    const auto& r = show.recorder;
+    options.folder = r.folder.isNotEmpty() ? juce::File(r.folder)
+                                           : juce::File::getSpecialLocation(juce::File::userMusicDirectory).getChildFile("CrowdMike");
+    options.format = static_cast<rec::RecorderEngine::RecordOptions::Format>(juce::jlimit(0, 2, r.format));
+    options.namePattern = r.pattern;
+    options.scene = getCurrentSceneName();
+    options.show = r.show;
+    options.venue = r.venue;
+    options.preRollSeconds = r.preRollSeconds;
+    options.postRollSeconds = r.postRollSeconds;
+    options.maxFileSeconds = r.maxFileSeconds;
+    options.maxFileBytes = static_cast<juce::int64>(r.maxFileMegabytes * 1024.0 * 1024.0);
+    options.appVersion = kAppVersion;
+    options.routeSnapshot = juce::var(routing.toValueTree().toXmlString());
+    return recorder.startRecording(options);
+}
+
+void CrowdMikeAudioProcessor::stopRecording() { recorder.stopRecording(); }
+bool CrowdMikeAudioProcessor::isRecording() const { return recorder.getStatus().recording; }
+
+void CrowdMikeAudioProcessor::addMarker(int markerType, const juce::String& label)
+{
+    static const char* names[] = { "Big Cheer", "Chant", "Applause", "Performer Moment", "Problem/Feedback", "Marker" };
+    const int t = juce::jlimit(0, 5, markerType);
+    recorder.addMarker(label.isNotEmpty() ? label : juce::String(names[t]), static_cast<rec::MarkerType>(t));
+}
+
+juce::String CrowdMikeAudioProcessor::getCurrentSceneName() const
+{
+    const int cur = scenes.current();
+    return cur >= 0 ? scenes.at(cur).name : juce::String("NoScene");
+}
+
+void CrowdMikeAudioProcessor::recallScene(int slot) { scenes.recall(slot, show.ui.recallScope); }
+
+// ---------------------------------------------------------------- clip deck / bed / soundcheck persistence
+// ShowModel::playback = <Playback> <Clip slot file name gainDb ... hotkey/>* <Bed .../> <Soundcheck session loopStart .../> </Playback>
+namespace {
+const juce::Identifier kClip("Clip"), kBed("Bed"), kSoundcheck("Soundcheck");
+
+juce::File fileFromPath(const juce::String& path)
+{
+    return juce::File::isAbsolutePath(path) ? juce::File(path) : juce::File();
+}
+bool pathExists(const juce::String& path)
+{
+    return path.isNotEmpty() && fileFromPath(path).existsAsFile();
+}
+void writeClipSettings(juce::ValueTree& n, const rec::PlaybackEngine::ClipSettings& c)
+{
+    n.setProperty("name", c.name, nullptr);
+    n.setProperty("gainDb", c.gainDb, nullptr);
+    n.setProperty("fadeInMs", c.fadeInMs, nullptr);
+    n.setProperty("fadeOutMs", c.fadeOutMs, nullptr);
+    n.setProperty("start", c.startFrac, nullptr);
+    n.setProperty("end", c.endFrac, nullptr);
+    n.setProperty("loop", c.mode == rec::PlaybackEngine::ClipSettings::Loop, nullptr);
+    n.setProperty("reverse", c.reverse, nullptr);
+    n.setProperty("route", c.route, nullptr);
+    n.setProperty("tempoSync", c.tempoSync, nullptr);
+}
+rec::PlaybackEngine::ClipSettings readClipSettings(const juce::ValueTree& n)
+{
+    rec::PlaybackEngine::ClipSettings c;
+    c.name = n["name"].toString();
+    c.gainDb = juce::jlimit(-60.0f, 12.0f, static_cast<float>(n.getProperty("gainDb", 0.0)));
+    c.fadeInMs = juce::jlimit(0.0f, 10000.0f, static_cast<float>(n.getProperty("fadeInMs", 0.0)));
+    c.fadeOutMs = juce::jlimit(0.0f, 10000.0f, static_cast<float>(n.getProperty("fadeOutMs", 0.0)));
+    c.startFrac = juce::jlimit(0.0, 1.0, static_cast<double>(n.getProperty("start", 0.0)));
+    c.endFrac = juce::jlimit(c.startFrac, 1.0, static_cast<double>(n.getProperty("end", 1.0)));
+    c.mode = static_cast<bool>(n["loop"]) ? rec::PlaybackEngine::ClipSettings::Loop : rec::PlaybackEngine::ClipSettings::OneShot;
+    c.reverse = static_cast<bool>(n["reverse"]);
+    c.route = juce::jlimit(0, rec::PlaybackEngine::kNumDestinations - 1, static_cast<int>(n["route"]));
+    c.tempoSync = static_cast<bool>(n["tempoSync"]);
+    return c;
+}
+void writeBed(juce::ValueTree& n, const rec::PlaybackEngine::BedSettings& b)
+{
+    n.setProperty("slot", b.slot, nullptr);
+    n.setProperty("enabled", b.enabled, nullptr);
+    n.setProperty("minLoop", b.minLoopSec, nullptr);
+    n.setProperty("maxLoop", b.maxLoopSec, nullptr);
+    n.setProperty("crossfade", b.crossfadeSec, nullptr);
+    n.setProperty("variationDb", b.levelVariationDb, nullptr);
+    n.setProperty("lowpassHz", b.lowpassHz, nullptr);
+    n.setProperty("gainDb", b.gainDb, nullptr);
+    n.setProperty("route", b.route, nullptr);
+    n.setProperty("seed", static_cast<int>(b.seed), nullptr);
+}
+rec::PlaybackEngine::BedSettings readBed(const juce::ValueTree& n)
+{
+    rec::PlaybackEngine::BedSettings b;
+    b.slot = juce::jlimit(0, rec::PlaybackEngine::kMaxClips - 1, static_cast<int>(n["slot"]));
+    b.enabled = static_cast<bool>(n["enabled"]);
+    b.minLoopSec = static_cast<double>(n.getProperty("minLoop", 20.0));
+    b.maxLoopSec = static_cast<double>(n.getProperty("maxLoop", 60.0));
+    b.crossfadeSec = static_cast<double>(n.getProperty("crossfade", 4.0));
+    b.levelVariationDb = static_cast<float>(static_cast<double>(n.getProperty("variationDb", 2.0)));
+    b.lowpassHz = static_cast<float>(static_cast<double>(n.getProperty("lowpassHz", 0.0)));
+    b.gainDb = static_cast<float>(static_cast<double>(n.getProperty("gainDb", -12.0)));
+    b.route = juce::jlimit(0, rec::PlaybackEngine::kNumDestinations - 1, static_cast<int>(n["route"]));
+    b.seed = static_cast<unsigned>(static_cast<int>(n.getProperty("seed", 1)));
+    return b;
+}
+}
+
+juce::ValueTree CrowdMikeAudioProcessor::playbackChild(const juce::Identifier& type, int slot, bool create)
+{
+    for (auto c : show.playback)
+        if (c.hasType(type) && (slot < 0 || static_cast<int>(c["slot"]) == slot)) return c;
+    if (!create) return {};
+    juce::ValueTree c(type);
+    if (slot >= 0) c.setProperty("slot", slot, nullptr);
+    show.playback.appendChild(c, nullptr);
+    return c;
+}
+
+void CrowdMikeAudioProcessor::restorePlaybackFromShow()
+{
+    for (int slot = 0; slot < rec::PlaybackEngine::kMaxClips; ++slot) {
+        const auto node = playbackChild(kClip, slot, false);
+        auto& applied = appliedClips[static_cast<size_t>(slot)];
+        if (!node.isValid() && !applied.isValid()) continue;
+        if (node.isValid() && applied.isValid() && node.isEquivalentTo(applied)) continue;
+        const auto path = node.isValid() ? node["file"].toString() : juce::String();
+        const auto oldPath = applied.isValid() ? applied["file"].toString() : juce::String();
+        if (path != oldPath || !applied.isValid()) {
+            if (pathExists(path)) playback.loadClip(slot, fileFromPath(path));
+            else playback.unloadClip(slot);      // missing or removed file: the UI shows 'missing', never crash
         }
+        playback.setSettings(slot, node.isValid() ? readClipSettings(node) : rec::PlaybackEngine::ClipSettings {});
+        applied = node.isValid() ? node.createCopy() : juce::ValueTree();
+    }
+    const auto bedNode = playbackChild(kBed, -1, false);
+    if (bedNode.isValid() && !(appliedBed.isValid() && bedNode.isEquivalentTo(appliedBed))) {
+        playback.setBed(readBed(bedNode));
+        appliedBed = bedNode.createCopy();
+    }
+    const auto sc = playbackChild(kSoundcheck, -1, false);
+    if (sc.isValid() && !(appliedSoundcheck.isValid() && sc.isEquivalentTo(appliedSoundcheck))) {
+        const auto path = sc["session"].toString();
+        if ((!appliedSoundcheck.isValid() || path != appliedSoundcheck["session"].toString()) && pathExists(path))
+            soundcheck.loadSession(fileFromPath(path));
+        if (sc.hasProperty("loopStart"))
+            soundcheck.setLoopRange(static_cast<double>(sc["loopStart"]), static_cast<double>(sc["loopEnd"]), static_cast<bool>(sc["loopOn"]));
+        appliedSoundcheck = sc.createCopy();
+    }
 }
 
-float CrowdMikeAudioProcessor::getRequestedRouteGain(int inputIndex, int outputIndex) const noexcept
+bool CrowdMikeAudioProcessor::loadClipFile(int slot, const juce::File& file)
 {
-    if (inputIndex < 0 || inputIndex >= crowdmike::RoutingMatrix::maxChannels
-        || outputIndex < 0 || outputIndex >= crowdmike::RoutingMatrix::maxChannels)
-        return 0.0f;
-    return requestedRouteGains[static_cast<size_t>(outputIndex * crowdmike::RoutingMatrix::maxChannels + inputIndex)]
-        .load(std::memory_order_relaxed);
+    if (slot < 0 || slot >= rec::PlaybackEngine::kMaxClips) return false;
+    auto node = playbackChild(kClip, slot, true);
+    if (!node.hasProperty("gainDb")) writeClipSettings(node, playback.getSettings(slot));
+    node.setProperty("file", file.getFullPathName(), nullptr);
+    node.setProperty("name", file.getFileNameWithoutExtension(), nullptr);
+    appliedClips[static_cast<size_t>(slot)] = {};      // force a (re)load even when the path is unchanged
+    restorePlaybackFromShow();
+    return file.existsAsFile();
 }
 
-bool CrowdMikeAudioProcessor::setRequestedRouteGain(int inputIndex, int outputIndex, float linearGain) noexcept
+void CrowdMikeAudioProcessor::unloadClipFile(int slot)
 {
-    if (inputIndex < 0 || inputIndex >= crowdmike::RoutingMatrix::maxChannels
-        || outputIndex < 0 || outputIndex >= crowdmike::RoutingMatrix::maxChannels
-        || !std::isfinite(linearGain))
-        return false;
-    requestedRouteGains[static_cast<size_t>(outputIndex * crowdmike::RoutingMatrix::maxChannels + inputIndex)]
-        .store(juce::jlimit(-2.0f, 2.0f, linearGain), std::memory_order_relaxed);
-    hasSavedRouting.store(true, std::memory_order_release);
-    return true;
+    if (auto node = playbackChild(kClip, slot, false); node.isValid()) show.playback.removeChild(node, nullptr);
+    restorePlaybackFromShow();
+}
+
+void CrowdMikeAudioProcessor::setClipSettings(int slot, const rec::PlaybackEngine::ClipSettings& settings)
+{
+    if (slot < 0 || slot >= rec::PlaybackEngine::kMaxClips) return;
+    auto node = playbackChild(kClip, slot, true);
+    writeClipSettings(node, settings);
+    restorePlaybackFromShow();
+}
+
+juce::String CrowdMikeAudioProcessor::getClipPath(int slot) const
+{
+    for (const auto& c : show.playback)
+        if (c.hasType(kClip) && static_cast<int>(c["slot"]) == slot) return c["file"].toString();
+    return {};
+}
+
+bool CrowdMikeAudioProcessor::isClipMissing(int slot) const
+{
+    const auto path = getClipPath(slot);
+    return path.isNotEmpty() && !pathExists(path);
+}
+
+void CrowdMikeAudioProcessor::setClipHotkey(int slot, const juce::String& key)
+{
+    if (slot < 0 || slot >= rec::PlaybackEngine::kMaxClips) return;
+    if (key.isNotEmpty())   // one key triggers one clip
+        for (auto c : show.playback)
+            if (c.hasType(kClip) && c["hotkey"].toString() == key) c.removeProperty("hotkey", nullptr);
+    auto node = playbackChild(kClip, slot, true);
+    if (key.isEmpty()) node.removeProperty("hotkey", nullptr);
+    else node.setProperty("hotkey", key, nullptr);
+}
+
+juce::String CrowdMikeAudioProcessor::getClipHotkey(int slot) const
+{
+    for (const auto& c : show.playback)
+        if (c.hasType(kClip) && static_cast<int>(c["slot"]) == slot) return c["hotkey"].toString();
+    return {};
+}
+
+int CrowdMikeAudioProcessor::findClipForHotkey(const juce::String& key) const
+{
+    if (key.isEmpty()) return -1;
+    for (const auto& c : show.playback)
+        if (c.hasType(kClip) && c["hotkey"].toString() == key) return static_cast<int>(c["slot"]);
+    return -1;
+}
+
+void CrowdMikeAudioProcessor::setBedSettings(const rec::PlaybackEngine::BedSettings& bedSettings)
+{
+    auto node = playbackChild(kBed, -1, true);
+    writeBed(node, bedSettings);
+    restorePlaybackFromShow();
+}
+
+bool CrowdMikeAudioProcessor::loadSoundcheckSession(const juce::File& sessionJson)
+{
+    auto node = playbackChild(kSoundcheck, -1, true);
+    node.setProperty("session", sessionJson.getFullPathName(), nullptr);
+    appliedSoundcheck = {};
+    restorePlaybackFromShow();
+    return sessionJson.existsAsFile();
+}
+
+juce::String CrowdMikeAudioProcessor::getSoundcheckSessionPath() const
+{
+    for (const auto& c : show.playback)
+        if (c.hasType(kSoundcheck)) return c["session"].toString();
+    return {};
+}
+
+bool CrowdMikeAudioProcessor::isSoundcheckSessionMissing() const
+{
+    const auto path = getSoundcheckSessionPath();
+    return path.isNotEmpty() && !pathExists(path);
+}
+
+void CrowdMikeAudioProcessor::setSoundcheckLoop(double startSeconds, double endSeconds, bool enabled)
+{
+    auto node = playbackChild(kSoundcheck, -1, true);
+    node.setProperty("loopStart", startSeconds, nullptr);
+    node.setProperty("loopEnd", endSeconds, nullptr);
+    node.setProperty("loopOn", enabled, nullptr);
+    restorePlaybackFromShow();
+}
+
+int CrowdMikeAudioProcessor::getEstimatedTotalLatencySamples() const noexcept
+{
+    return getLatencySamples() + preparedBlockSize;
+}
+
+void CrowdMikeAudioProcessor::applyNotchSuggestion(int inputIndex, float hz, float q, float depthDb)
+{
+    if (inputIndex < 0 || inputIndex >= kMaxInputs) return;
+    undoManager.beginNewTransaction("Apply notch suggestion");
+    hub.setParamActual(ParamBank::index(Mod::Input, inputIndex, params::InputP::NotchHz), hz);
+    hub.setParamActual(ParamBank::index(Mod::Input, inputIndex, params::InputP::NotchQ), q);
+    hub.setParamActual(ParamBank::index(Mod::Input, inputIndex, params::InputP::NotchDepth), depthDb);
+    hub.setParamNormalised(ParamBank::index(Mod::Input, inputIndex, params::InputP::NotchOn), 1.0f);
+}
+
+void CrowdMikeAudioProcessor::applyWiringTemplate(int templateIndex)
+{
+    undoManager.beginNewTransaction("Apply wiring template");
+    WiringTemplates::TemplateTarget target { routing, show, activeInputChannels.load(), activeOutputChannels.load(),
+        [this](const juce::String& id, float actual) {
+            if (auto* p = parameters.getParameter(id)) p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, p->convertTo0to1(actual)));
+        } };
+    WiringTemplates::apply(static_cast<WiringTemplates::Id>(templateIndex), target);
+    applyShowChanges();
+}
+
+void CrowdMikeAudioProcessor::timerCallback()
+{
+    // Host-visible "button" parameters: act on the rising edge, then release them.
+    const auto edge = [this](int global, bool& last) {
+        const bool now = bank.rawAt(global) >= 0.5f;
+        const bool risen = now && !last;
+        last = now;
+        if (risen) {   // behave like a button: release it after acting (the host sees the edge, then the release)
+            if (auto* p = bank.parameterAt(global)) p->setValueNotifyingHost(0.0f);
+            last = false;
+        }
+        return risen;
+    };
+    namespace G = params::GlobalP;
+    if (edge(ParamBank::index(Mod::Global, 0, G::SceneNext), lastNextPressed)) scenes.next();
+    if (edge(ParamBank::index(Mod::Global, 0, G::ScenePrev), lastPrevPressed)) scenes.previous();
+    if (edge(ParamBank::index(Mod::Global, 0, G::RecordAll), lastRecordAll)) {
+        if (isRecording()) stopRecording(); else startRecording();
+    }
+    if (++riskTicks >= 4) { riskTicks = 0; updateFeedbackRisk(); }   // 20 Hz timer -> ~200 ms
+}
+
+void CrowdMikeAudioProcessor::updateFeedbackRisk()
+{
+    float severity = 0.0f;
+    if (analysis.isActive()) {   // candidates are only fresh while the analysis worker runs
+        dsp::FeedbackCandidate c[4];
+        const int n = engine.feedback().getCandidates(c, 4);
+        for (int k = 0; k < n; ++k) severity = juce::jmax(severity, c[k].severity);
+    }
+    const InputRiskContext ctx { bank, routing, show, getActiveOutputChannelCount(), engine.getFeedbackTap(), severity };
+    const int ins = getActiveInputChannelCount();
+    for (int i = 0; i < kMaxInputs; ++i)
+        engine.meters.inRisk[static_cast<size_t>(i)].store(i < ins ? evaluateInputRisk(ctx, i).result.score : 0.0f, std::memory_order_relaxed);
 }
 
 float CrowdMikeAudioProcessor::getAndResetInputPeak(int inputIndex) noexcept
 {
-    if (inputIndex < 0 || inputIndex >= crowdmike::RoutingMatrix::maxChannels)
+    if (inputIndex < 0 || inputIndex >= kMaxInputs)
         return 0.0f;
-    return inputs[static_cast<size_t>(inputIndex)].getAndResetPeak();
+    return engine.meters.inPeak[static_cast<size_t>(inputIndex)].getAndReset();
+}
+
+float CrowdMikeAudioProcessor::getRequestedRouteGain(int inputIndex, int outputIndex) const noexcept
+{
+    return routing.getDirect(inputIndex, outputIndex);
+}
+
+bool CrowdMikeAudioProcessor::setRequestedRouteGain(int inputIndex, int outputIndex, float linearGain) noexcept
+{
+    if (!routing.setDirect(inputIndex, outputIndex, linearGain))
+        return false;
+    routing.setHasSavedDirect(true);
+    return true;
 }
 
 juce::AudioProcessorEditor* CrowdMikeAudioProcessor::createEditor()

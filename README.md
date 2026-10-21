@@ -4,6 +4,27 @@ CrowdMike is a JUCE-based live crowd reinforcement, transformation, recording, a
 
 The product accepts multiple audience microphones and other audio inputs, delays and processes them, mixes them into one or more crowd buses, and routes those buses to multiple outputs. The goal is to make audience ambience controllable, larger, wider, more energetic, and recordable without forcing an operator to build a complicated DAW session.
 
+## Status
+
+All eleven implementation phases of [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) are implemented; see
+[docs/feature-audit/](docs/feature-audit/) for the feature-by-feature audit against the specifications and the list of
+items that still need real hardware / DAW validation. Module contracts: [docs/MODULES.md](docs/MODULES.md).
+
+### Download (Windows)
+
+Every build of this repository produces a Windows x64 installer (Standalone + VST3 + CLAP) and a portable zip, attached to the
+`windows-build-*` pre-releases on the GitHub Releases page and to the `CrowdMike-Windows-x64` artifact of each CI run.
+The builds are unsigned (Windows SmartScreen may warn).
+
+### Build from source
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target crowdmike_dsp_tests crowdmike_recording_tests crowdmike_tests
+ctest --test-dir build --output-on-failure          # use xvfb-run on headless Linux
+cmake --build build --target CrowdMike_All CrowdMike_CLAP
+```
+
 ## Planned formats
 
 - Standalone application
