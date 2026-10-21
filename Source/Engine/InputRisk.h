@@ -6,6 +6,8 @@
 //   direct  : in.trim + 20log|direct(i,o)|                                + out.trim
 //   group   : in.trim + 20log(assign(i,g)) + group.trim + 20log|bus(G,o)| + out.trim        (G = group L/R bus row)
 //   master  : in.trim + 20log(assign(i,g)) + group.trim + master.level + 20log|bus(M,o)| + out.trim
+//   effect  : in.trim + send(i,f) + fx return (+ reverb wet / multiplier level) + [master.level + 20log|bus(M,o)| | 20log|bus(FX f,o)|] + out.trim
+//             (only for an open send into a running effect; FX returns always sum into the master)
 // Muted inputs / groups / master / outputs break their paths. The loudest path wins; the result for that path also gets
 //   * compressor makeup of the input (when its compressor is on),
 //   * the delay/tape feedback amount when the input sends to that (non-bypassed) effect (recirculation boost),
