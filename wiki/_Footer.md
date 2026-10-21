@@ -1,0 +1,1 @@
+CrowdMike is in beta. Builds are unsigned and have not been validated in a DAW or on real hardware. See [[Roadmap and Known Gaps|Roadmap-and-Known-Gaps]]. Source: [github.com/djshellshoxxx/crowdmike](https://github.com/djshellshoxxx/crowdmike).
