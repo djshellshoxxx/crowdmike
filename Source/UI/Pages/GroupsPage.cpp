@@ -43,9 +43,9 @@ public:
         grMeter(18.0f), limMeter(18.0f) {
         setComponentID("group-row-" + juce::String(g));
         setTitle("Group " + juce::String(g + 1));
-        static const char* sendNames[] = { "Dly", "Echo", "Tape", "Rev", "Noise" };
+        static const char* sendNames[kNumFx] = { "Dly", "Echo", "Tape", "Rev", "Noise", "Verb", "Multi" };
         for (int f = 0; f < kNumFx; ++f) {
-            auto* s = sends.add(new kit::Captioned(sendNames[f], slider(proc, gidx(g, GroupP::Fx1 + f), 46), 30));
+            auto* s = sends.add(new kit::Captioned(sendNames[f], slider(proc, gidx(g, groupSendParam(f)), 46), 30));
             s->setTooltip(juce::String("Post-fader send to the ") + sendNames[f] + " effect (dB, -80 = off)");
         }
         meterL.source = [this] { return live ? proc.getMeters().groupPeakL[static_cast<size_t>(g)].getAndReset() : 0.0f; };

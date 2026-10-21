@@ -90,6 +90,12 @@ struct FxContext { double bpm = 120.0; bool hasTempo = false; double ppqPosition
 // ReverseChunk.h : class ReverseChunk (ReverseP)  Triggered / Continuous / Repeat; process(sendL,sendR,preL,preR,outL,outR,n,p,ctx);
 //   exposes ReverseChunk::Viz getViz() const noexcept for the GUI (write head, play head, stored region, state, pending, crossfade).
 // NoiseEnhancer.h: class NoiseEnhancer (NoiseP)  shaped noise under the crowd; process(sendL,sendR,outL,outR,n,p,ctx); hard output cap -24 dBFS peak
+// StadiumReverb.h: class StadiumReverb (ReverbP)  8-line Hadamard FDN, per-line damping, input diffusers, modulated cubic-read lines;
+//   process(inL,inR,outL,outR,n,p,ctx) wet only; unconditionally stable/finite; Freeze, TailKill, tempo-synced pre-delay;
+//   static lineMs(line,size) / tailSeconds(decay) for tests and the host tail length. docs/EFFECTS_SPEC.md section 19.
+// CrowdMultiplier.h: class CrowdMultiplier (MultiP)  2..16 decorrelated micro-delay voices (random smoothed LFOs, ramp detune, pan
+//   scatter, gain jitter, tone tilt), deterministic per seed, 1/sqrt(N) normalised; static traits(seed,voice), normalisation(n).
+//   process(inL,inR,outL,outR,n,p,ctx). docs/EFFECTS_SPEC.md section 20.
 // WidthProcessor.h: class WidthProcessor (WidthP) M/S width + decorrelation + safe Haas + LF mono + mono-compat; stereo in-place
 // FeedbackDetector.h : see below
 ```

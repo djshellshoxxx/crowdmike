@@ -30,6 +30,29 @@ CM_TEST(param_tables_are_unique_and_in_range) {
     checkUnique(TapeP::defs, "tape");
     checkUnique(ReverseP::defs, "reverse");
     checkUnique(NoiseP::defs, "noise");
+    checkUnique(ReverbP::defs, "reverb");
+    checkUnique(MultiP::defs, "multi");
+}
+
+CM_TEST(param_tables_fx_slots_6_and_7_are_appended) {
+    // Sends 6/7 sit at the END of the input and group tables; every earlier position and ID is untouched.
+    CM_EXPECT(InputP::Fx6 == InputP::Count - 2 && InputP::Fx7 == InputP::Count - 1);
+    CM_EXPECT(GroupP::Fx6 == GroupP::Count - 2 && GroupP::Fx7 == GroupP::Count - 1);
+    CM_EXPECT(InputP::FxPre == InputP::Fx5 + 1);
+    CM_EXPECT(std::strcmp(InputP::defs[InputP::Fx6].suffix, "fxSend6") == 0 && std::strcmp(InputP::defs[InputP::Fx7].suffix, "fxSend7") == 0);
+    CM_EXPECT(std::strcmp(GroupP::defs[GroupP::Fx7].suffix, "fxSend7") == 0);
+    for (int f = 0; f < 7; ++f) {
+        const std::string expect = "fxSend" + std::to_string(f + 1);
+        CM_EXPECT(expect == InputP::defs[inputSendParam(f)].suffix);
+        CM_EXPECT(expect == GroupP::defs[groupSendParam(f)].suffix);
+        CM_EXPECT(InputP::defs[inputSendParam(f)].def == -80.0f && GroupP::defs[groupSendParam(f)].lo == -80.0f);
+    }
+    CM_EXPECT(std::strcmp(ReverbP::defs[ReverbP::On].suffix, "on") == 0 && ReverbP::defs[ReverbP::On].def == 0.0f);
+    CM_EXPECT(std::strcmp(ReverbP::defs[ReverbP::TailKill].suffix, "tailKill") == 0);   // OSC pulse + momentary bindings key on this suffix
+    CM_EXPECT(std::strcmp(ReverbP::defs[ReverbP::Return].suffix, "returnDb") == 0 && std::strcmp(MultiP::defs[MultiP::Return].suffix, "returnDb") == 0);
+    CM_EXPECT(ReverbP::defs[ReverbP::Decay].lo == 0.2f && ReverbP::defs[ReverbP::Decay].hi == 20.0f);
+    CM_EXPECT(ReverbP::defs[ReverbP::PreDelay].hi == 250.0f);
+    CM_EXPECT(MultiP::defs[MultiP::Voices].lo == 2.0f && MultiP::defs[MultiP::Voices].hi == 16.0f);
 }
 
 CM_TEST(param_tables_keep_frozen_first_release_ids) {

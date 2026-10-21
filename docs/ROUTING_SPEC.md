@@ -124,3 +124,24 @@ Each port supports:
 - optional location/zone
 
 Stable IDs are used for persistence so renaming does not break scenes.
+
+## 10. Bus-source table (persisted matrix rows)
+
+The output bus matrix maps bus sources (rows) to output channels. The row numbers are part of the persisted format (`Routing` ValueTree, property `bus`: rows x 16 outputs, output-major, stride = row count) and recorder tap ids reference them indirectly, so they are frozen: new rows are only ever appended after the existing ones.
+
+| Rows | Source | Notes |
+|---|---|---|
+| 0..15 | Group 1..8 L/R | `group * 2 + channel` |
+| 16..25 | FX 1..5 returns L/R (Delay, Echo, Tape, Reverse, Noise) | `16 + fx * 2 + channel` |
+| 26..27 | Playback L/R | |
+| 28..29 | Master L/R | |
+| 30..31 | FX 6 return L/R (Stadium Reverb) | appended with FX slot 6 |
+| 32..33 | FX 7 return L/R (Crowd Multiplier) | appended with FX slot 7 |
+
+Total 34 rows (`kBusSrcCount`). Helpers: `busRowForFxReturn(fx, ch)`, `busRowIsFxReturn(row)`, `busRowFxIndex(row)` (Limits.h); `kBusSrcLegacyCount` = 30 is the original row count and `kBusSrcFxExtraBase` = 30 the first appended row.
+
+Persistence: `bus` keeps the legacy 30-row stride so a state saved by a 5-FX build loads identically; the appended rows travel in the extra property `busFx2` (4 rows x 16 outputs). A missing `busFx2` loads as silent rows (no route), and a new save is still readable by older builds (they ignore `busFx2`). Direct and assign matrices are unaffected.
+
+Recorder taps: the tap ids of the 5 legacy FX returns, master and output pairs keep their numbers; the returns of FX 6 and 7 are the two ids after the output pairs (`TapMap::FxExtra`, `TapMap::forFx(fx)`, `TapMap::fxSlotOf(id)`).
+
+FX sends: input and group FX sends 6 and 7 are appended parameters (`inputN.fxSend6/7`, `groupN.fxSend6/7`, default -80 dB = off) placed after every earlier parameter; use `inputSendParam(fx)` / `groupSendParam(fx)` instead of computing `Fx1 + slot`. The route validator treats all seven FX as send/return nodes that terminate in the master and the bus matrix (no FX-to-FX cycles are possible).

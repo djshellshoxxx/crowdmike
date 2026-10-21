@@ -41,5 +41,5 @@ private:
     std::array<std::unique_ptr<crowdmike::ui::Page>, static_cast<size_t>(crowdmike::ui::PageId::Count)> pages;
     crowdmike::ui::PageId current = crowdmike::ui::PageId::Live;
     bool inspectorVisible = true;
-    bool echoKeyDown = false, reverseKeyDown = false;
+    bool echoKeyDown = false, reverseKeyDown = false, reverbKillKeyDown = false;
 };

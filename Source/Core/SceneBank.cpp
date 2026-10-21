@@ -21,6 +21,8 @@ bool SceneBank::isTransientParam(int idx) {
         add(Mod::FxReverse, 0, params::ReverseP::Trigger);
         add(Mod::Tempo, 0, params::TempoP::Tap);
         add(Mod::Tempo, 0, params::TempoP::Resync);
+        add(Mod::FxReverb, 0, params::ReverbP::Freeze);     // performance holds, like Global Freeze
+        add(Mod::FxReverb, 0, params::ReverbP::TailKill);
         return v;
     }();
     return std::find(transient.begin(), transient.end(), idx) != transient.end();

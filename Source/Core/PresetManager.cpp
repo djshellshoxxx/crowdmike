@@ -38,6 +38,14 @@ const std::vector<FactoryPreset>& factoryPresets() {
         // ---- master chains
         { "Broadcast Master", S::MasterChain, "master", "", { { "eqOn", 1 }, { "compOn", 1 }, { "compThr", -16 }, { "compRatio", 2 }, { "compAttack", 30 }, { "compRelease", 250 }, { "compAutoMakeup", 1 }, { "limOn", 1 }, { "limCeil", -1.5f } } },
         { "PA Safe Master", S::MasterChain, "master", "", { { "eqOn", 1 }, { "compOn", 1 }, { "compThr", -20 }, { "compRatio", 3 }, { "compAttack", 15 }, { "compRelease", 180 }, { "limOn", 1 }, { "limCeil", -3 } } },
+        // ---- appended with FX slots 6 and 7 (additive: the entries above keep their positions)
+        { "Arena Hall", S::Effect, "reverb", "", { { "on", 1 }, { "size", 0.75f }, { "decay", 3.2f }, { "preDelayMs", 35 }, { "hfDampHz", 6500 }, { "lowCutHz", 140 }, { "diffusion", 0.8f }, { "modDepth", 0.35f }, { "modRate", 0.5f }, { "width", 1 }, { "wetDb", -4 } } },
+        { "Stadium Bowl", S::Effect, "reverb", "", { { "on", 1 }, { "size", 1 }, { "decay", 6.5f }, { "preDelayMs", 60 }, { "hfDampHz", 5000 }, { "lowCutHz", 200 }, { "diffusion", 0.85f }, { "modDepth", 0.4f }, { "modRate", 0.4f }, { "width", 1 }, { "wetDb", -6 } } },
+        { "Small Club", S::Effect, "reverb", "", { { "on", 1 }, { "size", 0.25f }, { "decay", 0.9f }, { "preDelayMs", 8 }, { "hfDampHz", 9000 }, { "lowCutHz", 100 }, { "diffusion", 0.7f }, { "modDepth", 0.2f }, { "width", 0.8f }, { "wetDb", -5 } } },
+        { "Endless Wash", S::Effect, "reverb", "", { { "on", 1 }, { "size", 1 }, { "decay", 18 }, { "preDelayMs", 40 }, { "hfDampHz", 4000 }, { "lowCutHz", 250 }, { "diffusion", 0.9f }, { "modDepth", 0.5f }, { "modRate", 0.3f }, { "wetDb", -10 } } },
+        { "Double The Crowd", S::Effect, "multi", "", { { "on", 1 }, { "voices", 6 }, { "depthMs", 3 }, { "rateHz", 0.7f }, { "detuneCents", 5 }, { "scatter", 0.6f }, { "tone", 0.4f }, { "levelDb", 0 } } },
+        { "Packed Terrace", S::Effect, "multi", "", { { "on", 1 }, { "voices", 12 }, { "depthMs", 5 }, { "rateHz", 0.9f }, { "detuneCents", 8 }, { "scatter", 0.8f }, { "tone", 0.6f }, { "levelDb", 0 } } },
+        { "Full Stadium", S::Effect, "multi", "", { { "on", 1 }, { "voices", 16 }, { "depthMs", 8 }, { "rateHz", 1.2f }, { "detuneCents", 12 }, { "scatter", 1 }, { "tone", 0.7f }, { "levelDb", -1 } } },
     };
     return presets;
 }

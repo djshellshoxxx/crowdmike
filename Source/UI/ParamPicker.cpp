@@ -14,6 +14,8 @@ juce::String moduleDisplayName(Mod m) noexcept {
         case Mod::FxTape: return "FX Tape";
         case Mod::FxReverse: return "FX Reverse";
         case Mod::FxNoise: return "FX Noise";
+        case Mod::FxReverb: return "FX Stadium Reverb";
+        case Mod::FxMulti: return "FX Crowd Multiplier";
         case Mod::Macro: return "Macros";
         case Mod::Tempo: return "Tempo";
         case Mod::Count: break;

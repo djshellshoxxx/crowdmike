@@ -278,7 +278,7 @@ void Inspector::rebuild() {
             fresh->add("De-esser", paramRange(Mod::Input, i, InputP::DeEssOn, DeEssP::Count));
             fresh->add("Compressor", paramRange(Mod::Input, i, InputP::InCompOn, CompP::Count));
             fresh->add("Transient", paramRange(Mod::Input, i, InputP::TransOn, TransP::Count));
-            fresh->add("Riding / FX sends", paramRange(Mod::Input, i, InputP::Riding, 7));
+            fresh->add("Riding / FX sends", paramRange(Mod::Input, i, InputP::Riding, InputP::Count - InputP::Riding));
             break;
         case K::Group:
             title = show.groupDisplayName(i);
@@ -287,7 +287,7 @@ void Inspector::rebuild() {
             fresh->add("EQ (4 band)", paramRange(Mod::Group, i, GroupP::Eq1On, 20));
             fresh->add("Compressor", paramRange(Mod::Group, i, GroupP::GrpCompOn, CompP::Count));
             fresh->add("Limiter", paramRange(Mod::Group, i, GroupP::GrpLimOn, LimP::Count));
-            fresh->add("Width / Sends", paramRange(Mod::Group, i, GroupP::Width, 6));
+            fresh->add("Width / Sends", paramRange(Mod::Group, i, GroupP::Width, GroupP::Count - GroupP::Width));
             break;
         case K::Output:
             title = show.outputDisplayName(i);
@@ -307,7 +307,9 @@ void Inspector::rebuild() {
                 case 1: title = "Echo throw"; fresh->add("Echo", paramIndices(Mod::FxEcho, 0)); break;
                 case 2: title = "Tape delay"; fresh->add("Tape", paramIndices(Mod::FxTape, 0)); break;
                 case 3: title = "Reverse chunk"; fresh->add("Reverse", paramIndices(Mod::FxReverse, 0)); break;
-                default: title = "Noise enhancer"; fresh->add("Noise", paramIndices(Mod::FxNoise, 0)); break;
+                case 4: title = "Noise enhancer"; fresh->add("Noise", paramIndices(Mod::FxNoise, 0)); break;
+                case 5: title = "Stadium reverb"; fresh->add("Reverb", paramIndices(Mod::FxReverb, 0)); break;
+                default: title = "Crowd multiplier"; fresh->add("Multiplier", paramIndices(Mod::FxMulti, 0)); break;
             }
             break;
         default:

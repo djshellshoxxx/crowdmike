@@ -72,8 +72,9 @@ struct UiSettings {
     bool tooltips = true;
     float scale = 1.0f;
     float recallRampMs = 60.0f;
-    // FX page display order of the five send effects (a permutation of 0..kNumFx-1). Display only: DSP topology is fixed.
-    std::array<int, kNumFx> fxOrder { 0, 1, 2, 3, 4 };
+    // FX page display order of the send effects (a permutation of 0..kNumFx-1). Display only: DSP topology is fixed.
+    // A saved 5-entry order (first release) loads as that order followed by the new slots 5, 6.
+    std::array<int, kNumFx> fxOrder { 0, 1, 2, 3, 4, 5, 6 };
     unsigned recallScope = 0xFFu;   // SceneScope bits used by operator recalls (GUI / keyboard)
 };
 

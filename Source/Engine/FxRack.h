@@ -1,13 +1,15 @@
 #pragma once
-// The five send/return effects (Delay, Echo, Tape, Reverse, Noise). Inputs are the stereo send buses; outputs are the
-// wet returns, already scaled by each effect's Return level.
+// The seven send/return effects (Delay, Echo, Tape, Reverse, Noise, Stadium Reverb, Crowd Multiplier). Inputs are the stereo send
+// buses; outputs are the wet returns, already scaled by each effect's Return level. Slot order = Limits.h kNumFx order.
 #include "Core/ParamBank.h"
+#include "DSP/CrowdMultiplier.h"
 #include "DSP/DigitalDelay.h"
 #include "DSP/DspCommon.h"
 #include "DSP/EchoThrow.h"
 #include "DSP/FxContext.h"
 #include "DSP/NoiseEnhancer.h"
 #include "DSP/ReverseChunk.h"
+#include "DSP/StadiumReverb.h"
 #include "DSP/TapeDelay.h"
 
 namespace crowdmike {
@@ -34,6 +36,8 @@ private:
     dsp::TapeDelay tape;
     dsp::ReverseChunk reverse;
     dsp::NoiseEnhancer noise;
+    dsp::StadiumReverb reverb;
+    dsp::CrowdMultiplier multi;
     std::array<dsp::Smoother, kNumFx> returnGain {};
     bool first = true;
     double sampleRateHz = 48000.0;

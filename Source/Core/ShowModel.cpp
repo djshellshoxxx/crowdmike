@@ -252,17 +252,20 @@ bool ShowModel::fromValueTree(const juce::ValueTree& t) {
         if (ui.scale <= 0.0f) ui.scale = 1.0f;
         if (u.hasProperty("recallRampMs"))
             ui.recallRampMs = juce::jlimit(10.0f, 500.0f, static_cast<float>(static_cast<double>(u["recallRampMs"])));
-        // fxOrder: accepted only when it is a permutation of 0..kNumFx-1
+        // fxOrder: accepted only when it is a permutation of 0..n-1 with n = kNumFx, or n = kNumLegacyFx (states saved by the
+        // 5-FX releases): then the slots added later are appended in their natural order.
         const auto tokens = juce::StringArray::fromTokens(u["fxOrder"].toString(), ",", "");
-        if (tokens.size() == kNumFx) {
+        const int count = tokens.size();
+        if (count == kNumFx || count == kNumLegacyFx) {
             std::array<int, kNumFx> order {};
             std::array<bool, kNumFx> seen {};
             bool ok = true;
-            for (int k = 0; k < kNumFx && ok; ++k) {
+            for (int k = 0; k < count && ok; ++k) {
                 const int f = tokens[k].getIntValue();
-                ok = f >= 0 && f < kNumFx && !seen[static_cast<size_t>(f)];
+                ok = f >= 0 && f < count && !seen[static_cast<size_t>(f)];
                 if (ok) { seen[static_cast<size_t>(f)] = true; order[static_cast<size_t>(k)] = f; }
             }
+            for (int k = count; k < kNumFx; ++k) order[static_cast<size_t>(k)] = k;
             if (ok) ui.fxOrder = order;
         }
         if (u.hasProperty("recallScope"))

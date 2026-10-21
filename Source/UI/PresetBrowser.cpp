@@ -7,7 +7,8 @@ namespace {
 struct Target { const char* key; const char* label; Mod mod; };
 const Target kTargets[] = { { "input", "Input", Mod::Input }, { "group", "Group", Mod::Group }, { "master", "Master", Mod::Master },
                             { "delay", "FX Delay", Mod::FxDelay }, { "echo", "FX Echo", Mod::FxEcho }, { "tape", "FX Tape", Mod::FxTape },
-                            { "reverse", "FX Reverse", Mod::FxReverse }, { "noise", "FX Noise", Mod::FxNoise } };
+                            { "reverse", "FX Reverse", Mod::FxReverse }, { "noise", "FX Noise", Mod::FxNoise },
+                            { "reverb", "FX Stadium Reverb", Mod::FxReverb }, { "multi", "FX Crowd Multiplier", Mod::FxMulti } };
 constexpr int kNumTargets = static_cast<int>(sizeof(kTargets) / sizeof(kTargets[0]));
 
 void paintRow(juce::Graphics& g, int row, int w, int h, bool selected, const juce::String& main, const juce::String& side) {

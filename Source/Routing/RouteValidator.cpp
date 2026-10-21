@@ -90,7 +90,7 @@ std::vector<Edge> edgesFromState(const RoutingState& s, bool groupsFeedFx) {
             if (std::abs(s.getBus(r, o)) <= eps) continue;
             int from;
             if (r < kBusSrcFxBase) from = nodeGroup(r / 2);
-            else if (r < kBusSrcPlayback) from = nodeFxReturn((r - kBusSrcFxBase) / 2);
+            else if (busRowIsFxReturn(r)) from = nodeFxReturn(busRowFxIndex(r));
             else if (r < kBusSrcMaster) from = nodePlayback();
             else from = nodeMaster();
             edges.push_back({ from, nodeOutput(o) });
