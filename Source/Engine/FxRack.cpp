@@ -26,6 +26,12 @@ void FxRack::process(const float* const* sL, const float* const* sR, const float
     const float* pRev = bank.effective(Mod::FxReverse);
     const float* pNoise = bank.effective(Mod::FxNoise);
     const float* pVerb = bank.effective(Mod::FxReverb);
+    float verbLocal[ReverbP::Count];
+    if (plan != nullptr && plan->panicKillReverb) {
+        std::copy(pVerb, pVerb + ReverbP::Count, verbLocal);
+        verbLocal[ReverbP::TailKill] = 1.0f;
+        pVerb = verbLocal;
+    }
     const float* pMulti = bank.effective(Mod::FxMulti);
     delay.process(sL[0], sR[0], rL[0], rR[0], n, pDelay, ctx);
     if (plan != nullptr && plan->echoOverride) {
