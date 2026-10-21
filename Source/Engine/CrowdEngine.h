@@ -13,6 +13,7 @@
 #include "DSP/ChannelDelay.h"
 #include "DSP/CorrelationMeter.h"
 #include "DSP/DspCommon.h"
+#include "DSP/Ducker.h"
 #include "DSP/Envelope.h"
 #include "DSP/FeedbackDetector.h"
 #include "DSP/FxContext.h"
@@ -22,6 +23,7 @@
 #include "Engine/EngineBuffer.h"
 #include "Engine/EngineMeters.h"
 #include "Engine/FxRack.h"
+#include "Engine/LineCheck.h"
 #include "Engine/GroupChannel.h"
 #include "Engine/InputChannel.h"
 #include "Engine/MasterBus.h"
@@ -77,12 +79,17 @@ public:
     int getPreparedInputs() const noexcept { return numIn; }
     int getPreparedOutputs() const noexcept { return numOut; }
     double getSampleRate() const noexcept { return sampleRate; }
+    // Line Check probe (docs/LINE_CHECK_SPEC.md): arm from the message thread, read frames with linecheck::Collector.
+    linecheck::ProbeBank& lineProbe() noexcept { return probeBank; }
+    const dsp::Ducker& performerDucker() const noexcept { return ducker; }
 
 private:
     void processChunk(juce::AudioBuffer<float>& host, int offset, int n, const BlockInfo& info) noexcept;
     void syncRouting(float rampMs) noexcept;
     void pushTaps(int n) noexcept;
     void tapPointers(int tapId, const float* out[2], int& channels) const noexcept;
+    // Performer ducker (docs/DUCKER_SPEC.md): fills duckGL/duckGR/duckFL/duckFR with the buses the master sum and the bus matrix use.
+    void applyDucker(const float* globalParams, int ins, int n, bool bypass) noexcept;
 
     Services services;
     double sampleRate = 48000.0;
@@ -104,6 +111,9 @@ private:
     std::array<dsp::LevelHistory, kMaxInputs> inHistory;
     std::array<dsp::LevelHistory, kMaxGroups> groupHistoryBuf;
     dsp::LevelHistory masterHistoryBuf;
+    dsp::Ducker ducker;
+    dsp::ChannelDelay duckDelay;
+    linecheck::ProbeBank probeBank;
 
     // Smoothed mixing cells
     std::array<dsp::Smoother, kMaxGroups * kMaxInputs> mixL {}, mixR {};
@@ -113,7 +123,10 @@ private:
 
     // Buffers
     EngineBuffer raw, proc, preDyn, groupL, groupR, sendL, sendR, retL, retR, pbL, pbR, mastBuf, preMix, outBuf, dryBuf;
-    std::array<float*, kBusSrcCount> busPointers {};
+    EngineBuffer duckBuf, duckKey, duckGain;      // ducked copies of the group / FX-return buses (recorder taps keep the originals)
+    std::array<const float*, kMaxGroups> duckGL {}, duckGR {};
+    std::array<const float*, kNumFx> duckFL {}, duckFR {};
+    std::array<const float*, kBusSrcCount> busPointers {};
     std::array<bool, kMaxInputs> linkLead {}, linkFollower {};
     std::array<float, kMaxInputs> contribL {}, contribR {};
     std::array<bool, kMaxGroups> groupActive {};

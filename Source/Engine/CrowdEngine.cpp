@@ -40,6 +40,9 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     mastBuf.allocate(2, maxBlock);
     preMix.allocate(2, maxBlock);
     outBuf.allocate(kMaxOutputs, maxBlock);
+    duckBuf.allocate(2 * kMaxGroups + 2 * kNumFx, maxBlock);
+    duckKey.allocate(1, maxBlock);
+    duckGain.allocate(1, maxBlock);
 
     for (auto& c : inputs) c.prepare(sr, maxBlock);
     for (auto& g : groups) g.prepare(sr, maxBlock);
@@ -49,6 +52,9 @@ void CrowdEngine::prepare(double sr, int blockSize, int ins, int outs) {
     latencySamples = outputs[0].getLatencySamples();
     bypassDelay.prepare(sr, maxBlock, kMaxInputs, 100.0f);
     density.prepare(sr, maxBlock);
+    ducker.prepare(sr, maxBlock);
+    duckDelay.prepare(sr, maxBlock, 2 * kMaxGroups + 2 * kNumFx, 10.0f);
+    probeBank.prepare(sr, numIn);
     feedbackDetector.prepare(sr);
     correlation.prepare(sr);
     for (auto& h : inHistory) h.prepare(sr, 4.0f, 160);
@@ -138,6 +144,69 @@ void CrowdEngine::pushTaps(int n) noexcept {
     rec->advance(n);
 }
 
+void CrowdEngine::applyDucker(const float* G, int ins, int n, bool bypass) noexcept {
+    namespace D = DuckP;
+    const float* dp = G + duckBase();
+    const bool userOn = dp[D::On] >= 0.5f;
+    const int keyIdx = static_cast<int>(dp[D::Key] + 0.5f) - 1;
+    const bool keyValid = keyIdx >= 0 && keyIdx < ins;
+    const bool enabled = userOn && !bypass && keyValid;
+
+    // Key: raw host input scaled by the key input's trim only (post-trim, pre-processing).
+    float* key = duckKey.channel(0);
+    if (keyValid) {
+        const float k = dsp::dbToGain(services.bank->effective(Mod::Input, keyIdx)[InputP::Trim]);
+        const float* src = raw.channel(keyIdx);
+        for (int s = 0; s < n; ++s) key[s] = src[s] * k;
+    } else {
+        std::fill(key, key + n, 0.0f);
+    }
+    float* gain = duckGain.channel(0);
+    const bool reducing = ducker.process(key, n, dp, enabled, gain);
+    meters.duckGrDb.store(ducker.getGainReductionDb(), std::memory_order_relaxed);
+    meters.duckKeyPeak.update(ducker.getKeyPeak());
+    meters.duckOpen.store(ducker.isOpen(), std::memory_order_relaxed);
+
+    const float lookMs = enabled ? juce::jlimit(0.0f, 10.0f, dp[D::Lookahead]) : 0.0f;
+    const bool copyPath = userOn || lookMs > 0.0f || duckDelay.isGliding() || duckDelay.getDelaySamples() > 0;
+    if (!copyPath) {
+        for (int g = 0; g < kMaxGroups; ++g) { duckGL[static_cast<size_t>(g)] = groupL.channel(g); duckGR[static_cast<size_t>(g)] = groupR.channel(g); }
+        for (int f = 0; f < kNumFx; ++f) { duckFL[static_cast<size_t>(f)] = retL.channel(f); duckFR[static_cast<size_t>(f)] = retR.channel(f); }
+        return;
+    }
+
+    // Copies (never in place: recorder taps and meters keep the pre-duck buses), delayed together by the lookahead.
+    for (int g = 0; g < kMaxGroups; ++g) {
+        std::copy(groupL.channel(g), groupL.channel(g) + n, duckBuf.channel(2 * g));
+        std::copy(groupR.channel(g), groupR.channel(g) + n, duckBuf.channel(2 * g + 1));
+    }
+    for (int f = 0; f < kNumFx; ++f) {
+        std::copy(retL.channel(f), retL.channel(f) + n, duckBuf.channel(2 * kMaxGroups + 2 * f));
+        std::copy(retR.channel(f), retR.channel(f) + n, duckBuf.channel(2 * kMaxGroups + 2 * f + 1));
+    }
+    duckDelay.process(duckBuf.data(), 2 * kMaxGroups + 2 * kNumFx, n, lookMs);
+
+    if (reducing) {
+        const int target = static_cast<int>(dp[D::Target] + 0.5f);
+        const bool groupsOn = target == DuckTargetGroups || target == DuckTargetBoth;
+        const bool fxOn = target == DuckTargetFx || target == DuckTargetBoth;
+        const bool excludeKey = dp[D::ExcludeKey] >= 0.5f;
+        if (groupsOn)
+            for (int g = 0; g < kMaxGroups; ++g) {
+                if (excludeKey && keyValid && services.routing->getAssign(keyIdx, g) != 0.0f) continue;
+                juce::FloatVectorOperations::multiply(duckBuf.channel(2 * g), gain, n);
+                juce::FloatVectorOperations::multiply(duckBuf.channel(2 * g + 1), gain, n);
+            }
+        if (fxOn)
+            for (int f = 0; f < kNumFx; ++f) {
+                juce::FloatVectorOperations::multiply(duckBuf.channel(2 * kMaxGroups + 2 * f), gain, n);
+                juce::FloatVectorOperations::multiply(duckBuf.channel(2 * kMaxGroups + 2 * f + 1), gain, n);
+            }
+    }
+    for (int g = 0; g < kMaxGroups; ++g) { duckGL[static_cast<size_t>(g)] = duckBuf.channel(2 * g); duckGR[static_cast<size_t>(g)] = duckBuf.channel(2 * g + 1); }
+    for (int f = 0; f < kNumFx; ++f) { duckFL[static_cast<size_t>(f)] = duckBuf.channel(2 * kMaxGroups + 2 * f); duckFR[static_cast<size_t>(f)] = duckBuf.channel(2 * kMaxGroups + 2 * f + 1); }
+}
+
 void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n, const BlockInfo& info) noexcept {
     auto& bank = *services.bank;
     bank.refresh();
@@ -180,6 +249,8 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     } else {
         meters.soundcheckActive.store(false, std::memory_order_relaxed);
     }
+
+    probeBank.process(raw.data(), ins, n);   // Line Check: raw host inputs, pre-trim (one relaxed load when disarmed)
 
     syncRouting(rampMs);
 
@@ -304,6 +375,7 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         updatePeak(meters.groupPeakL[static_cast<size_t>(g)], groupL.channel(g), n);
         updatePeak(meters.groupPeakR[static_cast<size_t>(g)], groupR.channel(g), n);
         meters.groupGrDb[static_cast<size_t>(g)].store(groups[static_cast<size_t>(g)].getCompressorGrDb(), std::memory_order_relaxed);
+        meters.groupLimGrDb[static_cast<size_t>(g)].store(groups[static_cast<size_t>(g)].getLimiterGrDb(), std::memory_order_relaxed);
         groupHistoryBuf[static_cast<size_t>(g)].push(groupL.channel(g), n);
         for (int f = 0; f < kNumFx; ++f) {
             auto& s = grpSend[static_cast<size_t>(g * kNumFx + f)];
@@ -322,6 +394,10 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     }
 
     // ---- 6. FX
+    for (int f = 0; f < kNumFx; ++f) {
+        updatePeak(meters.fxSendPeak[static_cast<size_t>(f)], sendL.channel(f), n);
+        updatePeak(meters.fxSendPeak[static_cast<size_t>(f)], sendR.channel(f), n);
+    }
     dsp::FxContext ctx;
     ctx.bpm = info.bpm; ctx.hasTempo = info.hasTempo; ctx.ppqPosition = info.ppqPosition; ctx.playing = info.playing;
     ctx.freeze = G[GlobalP::Freeze] >= 0.5f;
@@ -331,18 +407,21 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
     fx.process(sendLp, sendRp, preMix.channel(0), preMix.channel(1), retLp, retRp, n, bank, ctx, rampMs);
     for (int f = 0; f < kNumFx; ++f) updatePeak(meters.fxPeak[static_cast<size_t>(f)], retL.channel(f), n);
 
+    // ---- 6b. performer ducker (docs/DUCKER_SPEC.md): ducked copies feed the master and the bus matrix; taps keep the originals
+    applyDucker(G, ins, n, bypass);
+
     // ---- 7. master bus
     float* ml = mastBuf.channel(0);
     float* mr = mastBuf.channel(1);
     for (int s = 0; s < n; ++s) { ml[s] = pbL.channel(0)[s]; mr[s] = pbR.channel(0)[s]; }
     for (int g = 0; g < kMaxGroups; ++g) {
-        juce::FloatVectorOperations::add(ml, groupL.channel(g), n);
-        juce::FloatVectorOperations::add(mr, groupR.channel(g), n);
+        juce::FloatVectorOperations::add(ml, duckGL[static_cast<size_t>(g)], n);
+        juce::FloatVectorOperations::add(mr, duckGR[static_cast<size_t>(g)], n);
     }
     density.process(mastBuf.data(), 2, n);
     for (int f = 0; f < kNumFx; ++f) {
-        juce::FloatVectorOperations::add(ml, retL.channel(f), n);
-        juce::FloatVectorOperations::add(mr, retR.channel(f), n);
+        juce::FloatVectorOperations::add(ml, duckFL[static_cast<size_t>(f)], n);
+        juce::FloatVectorOperations::add(mr, duckFR[static_cast<size_t>(f)], n);
     }
     master.process(ml, mr, n, bank.effective(Mod::Master), rampMs);
     updatePeak(meters.masterPeakL, ml, n);
@@ -362,12 +441,12 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         direct.process(src, dst);
     }
     for (int g = 0; g < kMaxGroups; ++g) {
-        busPointers[static_cast<size_t>(RoutingState::busRowForGroup(g, 0))] = groupL.channel(g);
-        busPointers[static_cast<size_t>(RoutingState::busRowForGroup(g, 1))] = groupR.channel(g);
+        busPointers[static_cast<size_t>(RoutingState::busRowForGroup(g, 0))] = duckGL[static_cast<size_t>(g)];
+        busPointers[static_cast<size_t>(RoutingState::busRowForGroup(g, 1))] = duckGR[static_cast<size_t>(g)];
     }
     for (int f = 0; f < kNumFx; ++f) {
-        busPointers[static_cast<size_t>(RoutingState::busRowForFx(f, 0))] = retL.channel(f);
-        busPointers[static_cast<size_t>(RoutingState::busRowForFx(f, 1))] = retR.channel(f);
+        busPointers[static_cast<size_t>(RoutingState::busRowForFx(f, 0))] = duckFL[static_cast<size_t>(f)];
+        busPointers[static_cast<size_t>(RoutingState::busRowForFx(f, 1))] = duckFR[static_cast<size_t>(f)];
     }
     busPointers[static_cast<size_t>(RoutingState::busRowForPlayback(0))] = pbL.channel(9);
     busPointers[static_cast<size_t>(RoutingState::busRowForPlayback(1))] = pbR.channel(9);

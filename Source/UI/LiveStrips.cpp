@@ -260,17 +260,19 @@ LiveGroupStrip::LiveGroupStrip(EditorContext& c, int g, const LiveFlag& f)
     name.onTextChange = [this] { proc.getShow().group(index).name = name.getText().trim(); ctx.showModelChanged(); };
     styleLiveLabel(readout, 11.0f, false, palette().text, juce::Justification::centred);
     readout.setFont(monoFont(11.0f));
-    readout.setTooltip(n + ": peak level (dBFS) / compressor gain reduction (dB)");
+    readout.setTooltip(n + ": peak level (dBFS) / compressor gain reduction (dB) / limiter gain reduction (dB)");
     auto& m = proc.getMeters();
     meterL.source = [this, &m] { return live.on ? m.groupPeakL[static_cast<size_t>(index)].getAndReset() : 0.0f; };
     meterR.source = [this, &m] { return live.on ? m.groupPeakR[static_cast<size_t>(index)].getAndReset() : 0.0f; };
     meterL.setTooltip(n + " left meter (click clears clip)");
     meterR.setTooltip(n + " right meter (click clears clip)");
     gr.source = [this, &m] { return live.on ? std::abs(m.groupGrDb[static_cast<size_t>(index)].load(std::memory_order_relaxed)) : gr.shownDb(); };
+    limGr.source = [this, &m] { return live.on ? std::abs(m.groupLimGrDb[static_cast<size_t>(index)].load(std::memory_order_relaxed)) : limGr.shownDb(); };
+    limGr.setTitle(n + " limiter gain reduction");
     trim.setTooltip(n + " fader / trim (-60..+24 dB)");
     mute.setTooltip(n + " mute");
     solo.setTooltip(n + " solo");
-    for (juce::Component* comp : std::initializer_list<juce::Component*> { &name, &readout, &meterL, &meterR, &gr, &trim, &mute, &solo })
+    for (juce::Component* comp : std::initializer_list<juce::Component*> { &name, &readout, &meterL, &meterR, &gr, &limGr, &trim, &mute, &solo })
         addAndMakeVisible(comp);
     name.addMouseListener(this, false);
     setTitle(n + " strip");
@@ -283,7 +285,8 @@ void LiveGroupStrip::mouseDown(const juce::MouseEvent&) { select(ctx, Selection:
 
 void LiveGroupStrip::tick() {
     const float db = juce::jmax(meterL.getDisplayedLevelDb(), meterR.getDisplayedLevelDb());
-    readout.setText(formatDb(db) + " GR " + juce::String(gr.shownDb(), 1), juce::dontSendNotification);
+    readout.setText(formatDb(db) + " GR " + juce::String(gr.shownDb(), 1) + (limGr.shownDb() > 0.05f ? "/" + juce::String(limGr.shownDb(), 1) : juce::String()),
+                    juce::dontSendNotification);
     const bool sel = ctx.getSelection() == Selection { Selection::Kind::Group, index };
     if (sel != (getProperties()["sel"].toString() == "1")) { getProperties().set("sel", sel ? "1" : "0"); repaint(); }
 }
@@ -317,6 +320,8 @@ void LiveGroupStrip::resized() {
     meterR.setBounds(r.removeFromLeft(mw).withTrimmedBottom(row));
     r.removeFromLeft(2);
     gr.setBounds(r.removeFromLeft(juce::jmax(4, mw / 2 + 1)).withTrimmedBottom(row));
+    r.removeFromLeft(1);
+    limGr.setBounds(r.removeFromLeft(juce::jmax(4, mw / 2 + 1)).withTrimmedBottom(row));
     r.removeFromLeft(2);
     trim.setTextBoxStyle(juce::Slider::TextBoxBelow, false, r.getWidth(), row);
     trim.setBounds(r);
@@ -340,6 +345,11 @@ LiveMasterSection::LiveMasterSection(EditorContext& c, const LiveFlag& f) : ctx(
     addAndMakeVisible(masterR);
     static const char* fxNames[kNumFx] = { "Delay", "Echo", "Tape", "Reverse", "Noise" };
     for (int i = 0; i < kNumFx; ++i) {
+        auto* snd = fxSendMeters.add(new LevelMeter(LevelMeter::Orientation::Horizontal));
+        snd->source = [this, &m, i] { return live.on ? m.fxSendPeak[static_cast<size_t>(i)].getAndReset() : 0.0f; };
+        snd->setTooltip(juce::String(fxNames[i]) + " send level (input of the effect)");
+        snd->setTitle(juce::String(fxNames[i]) + " send level");
+        addAndMakeVisible(snd);
         auto* mtr = fxMeters.add(new LevelMeter(LevelMeter::Orientation::Horizontal));
         mtr->source = [this, &m, i] { return live.on ? m.fxPeak[static_cast<size_t>(i)].getAndReset() : 0.0f; };
         mtr->setTooltip(juce::String(fxNames[i]) + " return activity");
@@ -441,7 +451,7 @@ void LiveMasterSection::paint(juce::Graphics& g) {
     }
     g.setColour(p.textMuted);
     g.setFont(font(10.5f, true));
-    if (!fxArea.isEmpty()) g.drawText("FX RETURN ACTIVITY", fxArea.withHeight(scaled(13)), juce::Justification::centredLeft);
+    if (!fxArea.isEmpty()) g.drawText("FX SEND  |  RETURN", fxArea.withHeight(scaled(13)), juce::Justification::centredLeft);
     if (!limArea.isEmpty()) g.drawText("LIMITERS", limArea.withHeight(scaled(13)), juce::Justification::centredLeft);
     if (!outArea.isEmpty()) g.drawText("OUTPUTS (" + juce::String(numOutputs) + ")", outArea.withHeight(scaled(13)), juce::Justification::centredLeft);
 }
@@ -470,6 +480,9 @@ void LiveMasterSection::resized() {
         for (int i = 0; i < kNumFx; ++i) {
             auto line = a.removeFromTop(row - 1);
             fxLabels[i]->setBounds(line.removeFromLeft(lw));
+            const int sendW = line.getWidth() * 2 / 5;
+            fxSendMeters[i]->setBounds(line.removeFromLeft(sendW).reduced(0, 2));
+            line.removeFromLeft(2);
             fxMeters[i]->setBounds(line.reduced(0, 2));
         }
     }
