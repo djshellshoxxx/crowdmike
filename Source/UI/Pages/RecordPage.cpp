@@ -6,6 +6,7 @@
 #include "UI/PageKit.h"
 #include "UI/Pages.h"
 #include "UI/RecordWidgets.h"
+#include "UI/ReportPanels.h"
 #include "UI/Ticker.h"
 
 namespace crowdmike::ui {
@@ -16,7 +17,8 @@ const char* const kMarkerNames[] = { "Big Cheer", "Chant", "Applause", "Performe
 
 class RecordPage final : public Page, private Tickable, private juce::ListBoxModel {
 public:
-    explicit RecordPage(EditorContext& c) : Page(c) {
+    explicit RecordPage(EditorContext& c) : Page(c), reportPanel(c) {
+        addAndMakeVisible(reportPanel);
         // ---- header
         recButton.setComponentID("rec.record");
         kit::setupButton(recButton, "Start / stop recording of every armed track (Ctrl+R)");
@@ -126,14 +128,15 @@ public:
     }
 
     // ---- page lifecycle
-    void pageShown() override { active = true; refreshFromModel(); refreshMarkers(true); tick(); }
-    void pageHidden() override { active = false; }
+    void pageShown() override { active = true; refreshFromModel(); refreshMarkers(true); reportPanel.setActive(true); tick(); }
+    void pageHidden() override { active = false; reportPanel.setActive(false); }
 
     void paint(juce::Graphics& g) override {
         Page::paint(g);
         kit::paintSection(g, tracksArea, "Tracks");
         kit::paintSection(g, filesArea, "Files");
         kit::paintSection(g, markersArea, "Markers");
+        kit::paintSection(g, reportArea, "Show Report");
         const auto& p = palette();
         if (proc.isRecording()) {   // REC frame around the header: state is also in text (badge + button)
             g.setColour(p.rec);
@@ -164,6 +167,9 @@ public:
         const int rightW = juce::jlimit(320, 520, r.getWidth() * 36 / 100);
         auto right = r.removeFromRight(rightW);
         r.removeFromRight(8);
+        reportArea = r.removeFromBottom(ShowReportPanel::kPreferredHeight);
+        r.removeFromBottom(8);
+        reportPanel.setBounds(kit::sectionContent(reportArea));
         tracksArea = r;
         auto tc = kit::sectionContent(tracksArea);
         waveform.setBounds(tc.removeFromBottom(juce::jlimit(56, 140, tc.getHeight() / 6)));
@@ -512,7 +518,8 @@ private:
     int tickCount = 0, selectedTrack = 0, lastErrors = 0;
     juce::uint32 lastFreeCheckMs = 0;
     double cachedFreeGB = -1.0;
-    juce::Rectangle<int> headerArea, tracksArea, filesArea, markersArea;
+    juce::Rectangle<int> headerArea, tracksArea, filesArea, markersArea, reportArea;
+    ShowReportPanel reportPanel;
 
     juce::TextButton recButton, recordAll, split, autoAssign;
     StatusBadge stateBadge, dropBadge, errBadge;

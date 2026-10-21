@@ -6,13 +6,15 @@
 // Layout is proportional so it works from 1100x650 to 4K. Meters only consume engine peaks while the page is shown.
 #include "UI/LiveStrips.h"
 #include "UI/Pages.h"
+#include "UI/ReportPanels.h"
 
 namespace crowdmike::ui {
 namespace {
 class LivePage final : public Page, private Tickable {
 public:
-    explicit LivePage(EditorContext& c) : Page(c), ribbon(c), master(c, live) {
+    explicit LivePage(EditorContext& c) : Page(c), ribbon(c), master(c, live), energy(c.proc) {
         addAndMakeVisible(ribbon);
+        addAndMakeVisible(energy);
         inputViewport.setViewedComponent(&inputHolder, false);
         inputViewport.setScrollBarsShown(false, true);
         inputViewport.setTitle("Input strips");
@@ -32,8 +34,9 @@ public:
         live.on = true;
         rebuildInputs();
         master.setNumOutputs(proc.getActiveOutputChannelCount());
+        energy.setActive(true);
     }
-    void pageHidden() override { live.on = false; }
+    void pageHidden() override { live.on = false; energy.setActive(false); }
 
     void tick() override {
         // Channel layout can change while running (host re-prepare): follow it.
@@ -45,7 +48,10 @@ public:
     void resized() override {
         auto r = getLocalBounds().reduced(6);
         const int H = r.getHeight();
-        ribbon.setBounds(r.removeFromTop(juce::jlimit(30, 48, H / 16)));
+        auto top = r.removeFromTop(juce::jlimit(30, 48, H / 16));
+        energy.setBounds(top.removeFromRight(juce::jlimit(170, 300, top.getWidth() / 5)).reduced(0, 2));   // Show Report sparkline
+        top.removeFromRight(6);
+        ribbon.setBounds(top);
         r.removeFromTop(6);
         const int W = r.getWidth();
         auto masterArea = r.removeFromRight(juce::jlimit(190, 460, W / 5));
@@ -104,6 +110,7 @@ private:
     juce::OwnedArray<LiveInputStrip> inputs;
     juce::OwnedArray<LiveGroupStrip> groups;
     LiveMasterSection master;
+    EnergySparkline energy;
 };
 }
 std::unique_ptr<Page> makeLivePage(EditorContext& c) { return std::make_unique<LivePage>(c); }
