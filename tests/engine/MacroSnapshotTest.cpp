@@ -1,5 +1,6 @@
 #include "TestHarness.h"
 #include "PluginProcessor.h"
+#include <array>
 #include <atomic>
 #include <thread>
 
@@ -8,6 +9,12 @@ using namespace crowdmike;
 CM_TEST(macro_snapshot_concurrent_publication_keeps_complete_mapping) {
     auto processor = std::make_unique<CrowdMikeAudioProcessor>();
     auto& bank = processor->getBank();
+    std::array<float, kMaxInputs> expectedLow {}, expectedHigh {};
+    for (int input = 0; input < kMaxInputs; ++input) {
+        auto* parameter = bank.parameterAt(ParamBank::index(Mod::Input, input, params::InputP::Trim));
+        expectedLow[static_cast<size_t>(input)] = parameter->convertFrom0to1(0.0f);
+        expectedHigh[static_cast<size_t>(input)] = parameter->convertFrom0to1(1.0f);
+    }
     MacroSet forward, reverse;
     for (auto* set : {&forward, &reverse}) {
         auto& map = set->macros[0];
@@ -26,17 +33,23 @@ CM_TEST(macro_snapshot_concurrent_publication_keeps_complete_mapping) {
         for (int i = 0; i < 100000; ++i) bank.publishMacros(i % 2 == 0 ? reverse : forward);
     });
     start.store(true, std::memory_order_release);
-    bool coherent = true;
+    bool validEndpoints = true;
+    bool coherentMapping = true;
     for (int i = 0; i < 10000; ++i) {
         bank.refresh();
         const float first = bank.effectiveAt(ParamBank::index(Mod::Input, 0, params::InputP::Trim));
-        // One complete mapping sets all input trims to -60 dB, the other to
-        // +24 dB. A callback must never mix assignments from those mappings.
-        coherent = coherent && (first == -60.0f || first == 24.0f);
-        for (int input = 1; input < kMaxInputs; ++input)
-            coherent = coherent && bank.effectiveAt(ParamBank::index(Mod::Input, input, params::InputP::Trim)) == first;
+        // JUCE's interval snapping may round an endpoint differently when the
+        // compiler fuses multiply-adds. Snapshot membership and channel
+        // coherence must still match the public parameter conversion exactly.
+        for (int input = 0; input < kMaxInputs; ++input) {
+            const float actual = bank.effectiveAt(ParamBank::index(Mod::Input, input, params::InputP::Trim));
+            validEndpoints = validEndpoints && (actual == expectedLow[static_cast<size_t>(input)]
+                                                 || actual == expectedHigh[static_cast<size_t>(input)]);
+            coherentMapping = coherentMapping && actual == first;
+        }
     }
     publisher.join();
-    CM_EXPECT(coherent);
+    CM_EXPECT(validEndpoints);
+    CM_EXPECT(coherentMapping);
     CM_EXPECT(bank.currentMacros().macros[0].dests[0].min01 == 0.0f);
 }

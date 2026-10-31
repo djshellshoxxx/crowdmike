@@ -25,6 +25,22 @@ CLAP's warning is the pinned wrapper accepting nonempty random state bytes becau
 
 The first full fast run exposed two documentation errors in the newly added environment guide (missing README index entry and ambiguous package-recreation wording). Both were corrected; the final fast and constrained-stack runs above passed. Assertions and test selection were retained.
 
+## Native CI portability follow-up
+
+The first native CI run for this branch built on macOS and Linux but failed one newly added test, `macro_snapshot_concurrent_publication_keeps_complete_mapping` (one failure among 175 processor cases on each platform). DSP and recording tests passed. The test combined a hard-coded exact `24.0f` endpoint assumption with the independent all-channel coherence check.
+
+Two independent Linux probes reproduced the numerical failure, including one using the real JUCE `NormalisableRange`: contraction disabled produced exactly `24.0f`; fused multiply/add produced `23.999998092651367`. All sixteen channels remained exactly equal in that reproduction. JUCE's `0.01f` snapping interval is a binary approximation, so the fused result lies just below the upper clamp.
+
+The test now captures each target's canonical endpoints through the public `RangedAudioParameter::convertFrom0to1` API before starting either thread. It separately asserts exact endpoint membership and exact equality across all sixteen channels. No epsilon, skipped assertion, iteration/load reduction or production change was introduced. An independent reviewer confirmed that stale/default/intermediate values still fail membership and mixed mapping generations still fail coherence. The corrected entire 175-case processor suite passed locally. Native rerun status is recorded by the PR checks; the earlier failing jobs are retained as evidence rather than counted as successful validation.
+
+### Native Windows layout follow-up
+
+The same initial native run completed all 175 Windows processor cases in 41.68 seconds without the original stack crash. Its only failure was the existing Record-page caption audit: `rec.autoAssign` measured 82.9247 pixels but its 86-pixel button provided only 82 pixels of audited caption space. This occurred in seven supported size/scale/contrast modes.
+
+`RecordPage::resized()` now gives the three-button header row a 288-pixel minimum instead of 270. Equal weights and six-pixel gaps are retained, so every button grows from 86 to at least 92 pixels and no neighboring caption loses width. The available caption space becomes 88 pixels. Labels, actions, accessibility IDs and heights are unchanged. All five existing UI audit tests passed locally with their original checks. Independent review swept supported logical widths and compact modes and found positive metric space with valid button bounds. Native Windows rerun status remains in the PR checks.
+
+After both native follow-ups, all seven targets were rebuilt and the full fast CTest suite passed all 395 cases in 62.71 seconds. Both validators, Linux packaging/hash/runtime checks and the eight-second startup smoke passed again. The full-soak result above covers the unchanged DSP/engine/recording paths; the subsequent changes were a test expectation and GUI width only.
+
 ## Changes completed
 
 | Area | Result and permanent regression coverage |
@@ -39,6 +55,7 @@ The first full fast run exposed two documentation errors in the newly added envi
 | Streaming playback | A voice uses only a head matching its region/reverse key; in-block synced restarts refresh cached head pointers; stopped-before-fill beds release their rings. |
 | Host state | Successful restore announces parameter changes to the host; malformed/newer rejected state stays silent. |
 | Release workflow | Correct nested validator archive extraction, honest individual validator outcomes, direct-tested CI gate, and mismatched orphan-tag rejection. |
+| Native Record-page layout | Header buttons retain equal widths with enough space for the Windows Auto-assign caption; existing full UI audit retained. |
 | Build metadata/setup | macOS microphone usage metadata supplied; rootless Debian cloud setup script and development guide added. Native permission behavior still needs macOS validation. |
 
 No parameter IDs, enum ordering, plug-in identity, state schema or preset schema changed. Public existing entry points were retained. PR #8 (`docs/readme-and-wiki`) and its branch were left intact; the README received only the environment-guide index entry required by the repository's documentation test.
@@ -76,7 +93,7 @@ Independent passes read Core/Control/Report, DSP/Engine/Routing, Recording/Playb
 
 No real audio interface, acoustic loop, DAW, screen reader, Windows/macOS executable/installer, or old OS deployment target was exercised in this Linux executor. Native CI and packaging are required for the release SHA; PR checks are the live record for this change. Signing, notarization, ASIO, AU and auxiliary buses retain their documented beta exclusions. Installed base system files were unchanged; local packages/config/caches live under `/workspace/work/crowdmike-env`.
 
-The local validation archive is `CrowdMike-0.3.0-cloud-validation-Linux-x86_64.tar.gz`, 22,291,757 bytes; SHA256 `c7b5465e3fe126444da889d9c8ea5103af73a226e65c62c061014fc00f35573a`. It was staged for inspection, not published as a beta. Installer help was checked without installing into the user's home. Scratch probes/logs are session-local; permanent regression cases are committed under `tests/`.
+The local validation archive is `CrowdMike-0.3.0-cloud-validation-Linux-x86_64.tar.gz`, 22,291,736 bytes; SHA256 `f4dc3a85dba3103fb06b5642065c044a30943ac7e9124b39ea979c1e8436102a`. It was staged for inspection, not published as a beta. Installer help was checked without installing into the user's home. Scratch probes/logs are session-local; permanent regression cases are committed under `tests/`.
 
 Sparse legacy-state defaults were specifically investigated and **refuted as a bug** by a reused-processor regression. The ordinary streamed-bed fade leak candidate was also rejected before a distinct stop-before-fill leak was reproduced and fixed. A concurrency stress run not finding a race was not represented as proof of the old ownership scheme.
 
@@ -840,3 +857,81 @@ xvfb-run -a build/crowdmike_tests audit_state_without_scenes
 
 Run before and after the fixture change, then the full suite under the same 1 MiB limit. The built executable location may differ; use the configured target path. Windows CI remains the authoritative platform check.
 
+
+---
+
+# Macro snapshot regression portability diagnosis
+
+## Native failure
+
+The macOS job `124463025275` on PR 9 failed only `macro_snapshot_concurrent_publication_keeps_complete_mapping` (`MacroSnapshotTest.cpp`, former line 40): one failure among 175 processor tests. The failed flag combined an exact hard-coded -60/+24 dB endpoint check with a separate exact equality check across all 16 input channels, so the original assertion did not distinguish numerical endpoint rounding from a mixed snapshot.
+
+The shared three-slot snapshot exchange's deterministic held-snapshot and coherent-generation checks did not identify an ownership defect. The endpoint check assumed JUCE's interval snapping always returns the exact decimal endpoint `24.0f`; that assumption is not portable across fused and separate multiply/add evaluation.
+
+## Local reproduction
+
+JUCE 9's `NormalisableRange::snapToLegalValue()` computes:
+
+```cpp
+v = start + interval * std::floor((v - start) / interval + 0.5f);
+return (v <= start || end <= start) ? start : (v >= end ? end : v);
+```
+
+The input trim range is `[-60, 24]` with interval `0.01f`. Its top endpoint uses a step count of 8,400. Because `0.01f` is a binary approximation, a fused multiply/add yields a value just below 24, which the final range clamp leaves unchanged. Separate operations round the multiplication to 84 before adding -60 and yield exactly 24.
+
+`work/macro-endpoint-probe.cpp` reproduces the JUCE snapping expression with runtime float inputs. Both binaries were built with GCC 14.2.0 on the same FMA-capable Linux CPU:
+
+```sh
+g++ -std=c++17 -O3 -mfma -ffp-contract=fast work/macro-endpoint-probe.cpp -o work/macro-endpoint-fast
+./work/macro-endpoint-fast
+g++ -std=c++17 -O3 -mfma -ffp-contract=off work/macro-endpoint-probe.cpp -o work/macro-endpoint-off
+./work/macro-endpoint-off
+```
+
+Observed output:
+
+```text
+# contraction enabled
+snapped=23.999998092651367 fused=23.999998092651367 exact-endpoint=0
+all-16-equal=1
+# contraction disabled
+snapped=24 fused=23.999998092651367 exact-endpoint=1
+all-16-equal=1
+```
+
+`std::fma(0.01f, 8400.0f, -60.0f)` independently gives the same lower value as the contracted expression. Disassembly of the contracted binary contains `vfmadd132ss`. Thus the old endpoint assertion can fail while all 16 channels remain exactly coherent; no concurrency or snapshot failure is needed to reproduce it.
+
+## Test contract correction
+
+Only `tests/engine/MacroSnapshotTest.cpp` changed. Before starting either thread, the test obtains each target parameter's exact natural-unit endpoints through its public `RangedAudioParameter::convertFrom0to1(0.0f/1.0f)` API. The concurrent loop now verifies:
+
+- Every channel equals one of that target's two canonical endpoint values, using exact equality.
+- Every channel equals the first channel, also using exact equality.
+
+The two results have separate assertions, `validEndpoints` and `coherentMapping`, so future failures identify whether an unsupported value appeared or two complete mapping generations were mixed. A stale unmodulated default still fails endpoint membership. A block mixing low and high mappings still fails channel coherence. There is no epsilon, test skip, change to publication load/counts, or production change.
+
+Deriving endpoint values from the public range API isolates this snapshot ownership test from platform-specific arithmetic inside JUCE. It does not relax the exact comparison of the observed audio-block values.
+
+## Verification status
+
+Both local arithmetic reproductions completed as shown, and `git diff --check` passes. The parent task owns the focused test rebuild and the required new native macOS CI result. The previous macOS failure is not recorded as fixed until that native rerun passes.
+
+---
+
+# Record header caption correction
+
+The native Windows CI build passed and ran all 175 engine tests. Its only failure was the existing UI layout audit: `rec.autoAssign` measured `Auto-assign` at 82.9247 px, but the minimum 270 px header-action row gave each of its three equal-weight buttons 86 px. With the audit's unchanged 4 px caption padding, only 82 px was available. Seven supported size/scale combinations exposed the same deficit.
+
+The real `CMLookAndFeel` uses a 15 px bold font for this 34 px button row. A focused Linux JUCE glyph probe measured all three captions before the change:
+
+| Caption | Glyph width | Width including audit padding |
+| --- | ---: | ---: |
+| Record all | 64.9168 px | 68.9168 px |
+| Split file | 52.2180 px | 56.2180 px |
+| Auto-assign | 77.5764 px | 81.5764 px |
+
+The native Windows Auto-assign width is larger than Linux's, which explains the platform-only failure. The correction increases the existing row's minimum width from 270 to 288 px and retains all three equal weights. After two existing 6 px gaps, each button receives 92 px and provides 88 px of caption space, exceeding the reported Windows requirement by 5.0753 px. All three buttons gain 6 px; no other caption is narrowed. The row's maximum width, controls, handlers, text, spacing and flow remain unchanged. The central readout region loses 18 px at narrow layouts but retains positive dimensions; the existing broad UI audit verifies sibling bounds and overlaps across supported modes.
+
+Production change: Source/UI/Pages/RecordPage.cpp only. UiAuditTest assertions remain unchanged. Local focused verification results will be appended after execution; native Windows GREEN requires the root's CI rerun.
+
+Local verification completed: `cmake --build build --target crowdmike_tests --parallel 4` rebuilt RecordPage.cpp and linked successfully. `build/crowdmike_tests ui_audit` passed all 5 existing tests, including the full supported size/scale/contrast layout matrix. Logs: work/record-header-build.log and work/record-header-ui-audit.log. `git diff --check` passes. No test or assertion was changed.
