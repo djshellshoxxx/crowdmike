@@ -7,6 +7,7 @@
 #include <memory>
 #include "PluginProcessor.h"
 #include "Standalone/HostServices.h"
+#include "Standalone/DeviceMapExchange.h"
 
 namespace crowdmike {
 class DeviceController final : public HostServices,
@@ -65,13 +66,8 @@ private:
     juce::AudioDeviceManager deviceManager;
     juce::MidiMessageCollector midiCollector;
 
-    // Active-channel resolution (rebuilt on the message thread, published by swapping an index into two tables).
-    struct Maps {
-        std::array<int, kMaxInputs> inputSource;     // engine input -> index in the callback's input array (-1 = none)
-        std::array<int, kMaxOutputs> outputTarget;   // engine output -> index in the callback's output array
-    };
-    std::array<Maps, 2> mapSlots {};
-    std::atomic<int> activeMap { 0 };
+    // Message-thread publications never reuse the map held by the in-flight audio callback.
+    DeviceMapExchange<kMaxInputs, kMaxOutputs> channelMaps;
 
     std::array<juce::String, kMaxInputs> inputBindingNames;
     std::array<juce::String, kMaxOutputs> outputBindingNames;

@@ -23,7 +23,6 @@ private:
 
 DeviceController::DeviceController(CrowdMikeAudioProcessor& p, const juce::File& f) : processor(p), folder(f) {
     folder.createDirectory();
-    for (auto& m : mapSlots) { m.inputSource.fill(-1); m.outputTarget.fill(-1); }
 }
 
 DeviceController::~DeviceController() {
@@ -89,8 +88,7 @@ void DeviceController::applyProcessorLayout(int ins, int outs, double sr, int bl
 
 void DeviceController::rebuildMaps() {
     auto* device = deviceManager.getCurrentAudioDevice();
-    const int next = 1 - activeMap.load();
-    auto& m = mapSlots[static_cast<size_t>(next)];
+    DeviceMapExchange<kMaxInputs, kMaxOutputs>::Maps m;
     m.inputSource.fill(-1);
     m.outputTarget.fill(-1);
     if (device != nullptr) {
@@ -102,7 +100,7 @@ void DeviceController::rebuildMaps() {
         for (int i = 0; i < engineIns; ++i) m.inputSource[static_cast<size_t>(i)] = resolveChannel(activeIn, inputBindingNames[static_cast<size_t>(i)]);
         for (int o = 0; o < engineOuts; ++o) m.outputTarget[static_cast<size_t>(o)] = resolveChannel(activeOut, outputBindingNames[static_cast<size_t>(o)]);
     }
-    activeMap.store(next);
+    channelMaps.publish(m);
 }
 
 void DeviceController::audioDeviceStopped() { deviceRunning.store(false); }
@@ -115,7 +113,7 @@ void DeviceController::audioDeviceError(const juce::String& message) {
 void DeviceController::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut,
                                                         int numSamples, const juce::AudioIODeviceCallbackContext&) {
     const auto start = juce::Time::getHighResolutionTicks();
-    const auto& maps = mapSlots[static_cast<size_t>(activeMap.load(std::memory_order_acquire))];
+    const auto& maps = channelMaps.acquire();
     const int chans = juce::jmax(engineIns, engineOuts);
     for (int off = 0; off < numSamples;) {
         const int n = juce::jmin(numSamples - off, workBuffer.getNumSamples());

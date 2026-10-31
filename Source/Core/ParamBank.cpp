@@ -142,7 +142,7 @@ void ParamBank::refresh() noexcept {
     const int macroBase = baseIndex(Mod::Macro, 0);
     for (int m = 0; m < kNumMacros; ++m) macroValues[static_cast<size_t>(m)] = eff[static_cast<size_t>(macroBase + m)];
 
-    const MacroSet& set = slots[static_cast<size_t>(activeSlot.load(std::memory_order_acquire))];
+    const MacroSet& set = macroSnapshots.acquire();
     for (int m = 0; m < kNumMacros; ++m) {
         const MacroMap& map = set.macros[static_cast<size_t>(m)];
         if (map.count == 0) continue;
@@ -171,10 +171,7 @@ void ParamBank::refresh() noexcept {
 }
 
 void ParamBank::publishMacros(const MacroSet& set) {
-    slots[static_cast<size_t>(writeSlot)] = set;
-    const int previous = activeSlot.exchange(writeSlot, std::memory_order_acq_rel);
-    // Rotate through the other slots so the audio thread's slot is never rewritten within the next two publishes.
-    writeSlot = (previous + 1) % static_cast<int>(slots.size());
-    if (writeSlot == activeSlot.load()) writeSlot = (writeSlot + 1) % static_cast<int>(slots.size());
+    latestMacros = set;
+    macroSnapshots.publish(set);
 }
 }
