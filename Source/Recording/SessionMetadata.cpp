@@ -1,5 +1,6 @@
 #include "SessionMetadata.h"
 #include <algorithm>
+#include <limits>
 
 namespace crowdmike::rec {
 
@@ -141,6 +142,7 @@ bool SessionMetadata::read(const juce::File& json, SessionInfo& out) {
     out.startFrame = i64(v["startFrame"]);
     out.preRollFrames = i64(v["preRollFrames"]);
     out.totalFrames = i64(v["totalFrames"]);
+    if (out.startFrame < 0 || out.preRollFrames < 0 || out.totalFrames < 0) return false;
     out.routeSnapshot = v["routeSnapshot"];
     if (auto* a = v["tracks"].getArray())
         for (auto& t : *a)
@@ -157,6 +159,9 @@ bool SessionMetadata::read(const juce::File& json, SessionInfo& out) {
             e.part = (int) f["part"];
             e.startFrame = i64(f["startFrame"]);
             e.numFrames = i64(f["frames"]);
+            if (e.startFrame < 0 || e.numFrames < 0
+                || e.numFrames > std::numeric_limits<juce::int64>::max() - e.startFrame)
+                return false;
             out.files.push_back(e);
         }
     if (auto* a = v["markers"].getArray())

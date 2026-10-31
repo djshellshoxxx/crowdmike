@@ -2,3 +2,4 @@ build/
 build-*/
 *.swp
 .claude/
+__pycache__/

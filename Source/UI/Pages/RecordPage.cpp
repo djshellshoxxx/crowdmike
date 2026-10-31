@@ -190,7 +190,8 @@ public:
             sub.removeFromLeft(4);
             errBadge.setBounds(sub);
             h.removeFromLeft(10);
-            auto buttons = h.removeFromRight(juce::jlimit(270, 420, h.getWidth() / 3));
+            // Three 92 px buttons keep "Auto-assign" readable with the wider Windows font metrics.
+            auto buttons = h.removeFromRight(juce::jlimit(288, 420, h.getWidth() / 3));
             kit::layoutRow(buttons.reduced(0, 6), { { &recordAll, 1.0f }, { &split, 1.0f }, { &autoAssign, 1.0f } });
             h.removeFromRight(8);
             kit::layoutRow(h, { { &takeLabel, 0.7f }, { &elapsedLabel, 1.0f }, { &remainLabel, 1.2f }, { &diskLabel, 1.0f } });

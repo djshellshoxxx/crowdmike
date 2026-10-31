@@ -58,6 +58,8 @@ public:
     //==== loading (non-audio threads, asynchronous) ==================================================================
     bool loadSession(const juce::File& sessionJson, MappingFunction mapping = {});
     bool loadFiles(const std::vector<InputFile>& files);
+    // Cancels loading, locks/disarms and removes the session. Old audio is retired by process(), never freed there.
+    void unloadSession();
     LoadState getLoadState() const;              // also releases replaced data (poll from the UI)
     std::vector<InputMapping> getInputMapping() const;
     bool waitForLoad(int timeoutMs) const;
@@ -126,6 +128,7 @@ private:
     std::vector<InputMapping> mapping;
     std::vector<Source> lastSources;
     juce::uint64 generation = 0;
+    std::atomic<juce::uint64> minimumDataGeneration { 0 };  // unload invalidates even a current block's old data
     std::atomic<bool> cancel { false };
     std::unique_ptr<Loader> loader;
 

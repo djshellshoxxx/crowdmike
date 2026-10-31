@@ -106,10 +106,11 @@ jobs:
           runs="$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100" \
                    --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "-") \(.event)"')"
           echo "ci.yml runs for $SHA:"; echo "${runs:-<none>}"
-          if grep -qE '^[0-9]+ completed success ' <<<"$runs"; then
+          # pull_request runs check out a synthetic merge commit, not their API head_sha.
+          if grep -qE '^[0-9]+ completed success (push|workflow_dispatch)$' <<<"$runs"; then
             echo "Gate passed: ci.yml succeeded for $SHA."
           else
-            echo "::error::No successful ci.yml run for commit $SHA. Wait for CI to finish (or fix it) and re-run; tests are not re-run here."
+            echo "::error::No successful push/manual ci.yml run for commit $SHA. Wait for CI to finish (or fix it) and re-run; tests are not re-run here."
             exit 1
           fi
 
@@ -235,6 +236,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     continue-on-error: true
+    outputs:
+      pluginval: ${{ steps.pluginval.outcome }}
+      clapval: ${{ steps.clapval.outcome }}
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -260,8 +264,9 @@ jobs:
         run: |
           gh release download --repo Tracktion/pluginval --pattern 'pluginval_Linux.zip' --dir tools
           unzip -q tools/pluginval_Linux.zip -d tools/pluginval
-          gh release download --repo free-audio/clap-validator --pattern '*ubuntu*' --dir tools
-          mkdir -p tools/clap-validator && tar -xzf tools/clap-validator-*ubuntu*.tar.gz -C tools/clap-validator
+          gh release download --repo free-audio/clap-validator --pattern 'clap-validator-*ubuntu*.zip' --dir tools
+          unzip -q tools/clap-validator-*ubuntu*.zip -d tools/clap-validator
+          tar -xzf tools/clap-validator/clap-validator-*ubuntu*.tar.gz -C tools/clap-validator
           chmod +x tools/pluginval/pluginval
           chmod +x "$(find tools/clap-validator -type f -name clap-validator | head -n1)"
       - name: pluginval strictness 5 (VST3)
@@ -315,7 +320,8 @@ jobs:
       SHA: ${{ needs.prepare.outputs.sha }}
       PLATFORMS: ${{ needs.prepare.outputs.platforms }}
       REPO: ${{ github.repository }}
-      VALIDATED: ${{ needs.prepare.outputs.validate == 'true' && needs.prepare.outputs.linux == 'true' && needs.validate.result != 'skipped' }}
+      PLUGINVAL_RESULT: ${{ needs.validate.outputs.pluginval || 'skipped' }}
+      CLAPVAL_RESULT: ${{ needs.validate.outputs.clapval || 'skipped' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -354,6 +360,13 @@ jobs:
                 [[ -e "dist/$b" ]] || cp "$f" "dist/$b"
               done
             fi
+          else
+            # --target does not move an existing tag when gh release create is called.
+            tagged="$(git rev-parse --verify "$TAG^{commit}" 2>/dev/null || true)"
+            if [[ -n "$tagged" && "$tagged" != "$SHA" ]]; then
+              echo "::error::Tag $TAG already points to $tagged, not $SHA, and has no release. Choose a new release version or reconcile the existing tag before retrying."
+              exit 1
+            fi
           fi
           ls -l dist
       - name: Checksums and notes
@@ -362,11 +375,10 @@ jobs:
           set -euo pipefail
           (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS && cat SHA256SUMS)
           prev_tag="$(git tag --list 'v*' --sort=-creatordate | grep -vx "$TAG" | head -n1 || true)"
-          flags=()
-          [[ "$VALIDATED" == true ]] && flags+=(--validators-ran)
           python3 shared/scripts/make_beta_notes.py --version "$VERSION" --sha "$SHA" --assets-dir dist \
             --repo "$REPO" --run-url "$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID" \
-            ${prev_tag:+--since "$prev_tag"} "${flags[@]}" > notes.md
+            ${prev_tag:+--since "$prev_tag"} --pluginval-result "$PLUGINVAL_RESULT" \
+            --clap-validator-result "$CLAPVAL_RESULT" > notes.md
           cat notes.md
       - name: Create or update the pre-release
         shell: bash

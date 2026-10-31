@@ -8,6 +8,7 @@ struct SoundcheckPlayer::Data {
     juce::AudioBuffer<float> audio;     // one channel per mapped input
     std::array<int, kMaxInputs> chanOf {};   // input -> audio channel, -1 = none
     std::int64_t frames = 0;
+    juce::uint64 generation = 0;
     JUCE_LEAK_DETECTOR(Data)
 };
 
@@ -131,6 +132,29 @@ bool SoundcheckPlayer::loadFiles(const std::vector<InputFile>& files) {
     return true;
 }
 
+void SoundcheckPlayer::unloadSession() {
+    setLocked(true);
+    cancel = true;
+    if (loader != nullptr) { loader->stopThread(10000); loader.reset(); }
+    auto empty = std::make_unique<Data>();
+    {
+        std::lock_guard<std::mutex> l(controlLock);
+        empty->generation = ++generation;
+        loadState = {};
+        mapping.clear();
+        lastSources.clear();
+        minimumDataGeneration.store(generation, std::memory_order_release);
+    }
+    // Publish an empty immutable result through the same hand-over as a load. A full retire queue may delay adoption,
+    // so minimumDataGeneration also prevents the old current session being reactivated in the meantime.
+    delete pending.exchange(empty.release(), std::memory_order_acq_rel);
+    releaseRetired();
+    durationFrames = 0;
+    positionFrames = 0;
+    playingState = false;
+    replacing = false;
+}
+
 void SoundcheckPlayer::startLoad(std::vector<Source> srcs, juce::String warning) {
     cancel = true;
     if (loader != nullptr) { loader->stopThread(10000); loader.reset(); }
@@ -151,6 +175,14 @@ void SoundcheckPlayer::startLoad(std::vector<Source> srcs, juce::String warning)
 }
 
 void SoundcheckPlayer::runLoad(const std::vector<Source>& srcs, juce::uint64 gen) {
+    const auto maxTimelineFrames = std::min<std::int64_t>(std::numeric_limits<int>::max() - 1,
+                                                        kMaxMemoryBytes / static_cast<juce::int64>(sizeof(float)));
+    const auto rejectTimeline = [this, gen](const juce::String& error) {
+        std::lock_guard<std::mutex> l(controlLock);
+        if (gen != generation || cancel.load()) return;
+        loadState.loading = false;
+        loadState.error = error;
+    };
     struct Decoded { const Source* src; int nch; std::vector<std::pair<juce::AudioBuffer<float>, std::int64_t>> parts; };
     std::vector<Decoded> decoded;
     juce::String errors;
@@ -161,6 +193,13 @@ void SoundcheckPlayer::runLoad(const std::vector<Source>& srcs, juce::uint64 gen
         bool ok = true;
         std::int64_t running = 0;
         for (auto& [file, start] : s.parts) {
+            const long double scaledOffset = s.partRate > 0.0
+                ? static_cast<long double>(start) * sampleRate / s.partRate : static_cast<long double>(running);
+            if (!std::isfinite(scaledOffset) || scaledOffset < 0.0L || scaledOffset > maxTimelineFrames) {
+                rejectTimeline("Soundcheck session timeline exceeds supported frame or memory limit");
+                return;
+            }
+            const auto off = static_cast<std::int64_t>(std::llround(scaledOffset));
             AudioFileLoader::Result r;
             juce::String err;
             if (! AudioFileLoader::load(file, sampleRate, 2, 0.0, kMaxMemoryBytes - bytes, r, err, &cancel)) {
@@ -170,7 +209,10 @@ void SoundcheckPlayer::runLoad(const std::vector<Source>& srcs, juce::uint64 gen
                 break;
             }
             bytes += (juce::int64) r.audio.getNumChannels() * r.audio.getNumSamples() * (juce::int64) sizeof(float);
-            const auto off = s.partRate > 0.0 ? (std::int64_t) std::llround((double) start * sampleRate / s.partRate) : running;
+            if (r.audio.getNumSamples() > maxTimelineFrames - off) {
+                rejectTimeline("Soundcheck session timeline exceeds supported frame or memory limit");
+                return;
+            }
             d.nch = std::max(d.nch, r.audio.getNumChannels());
             running = off + r.audio.getNumSamples();
             total = std::max(total, running);
@@ -182,6 +224,7 @@ void SoundcheckPlayer::runLoad(const std::vector<Source>& srcs, juce::uint64 gen
         }
     }
     auto data = std::make_unique<Data>();
+    data->generation = gen;
     data->chanOf.fill(-1);
     std::vector<InputMapping> map;
     int k = 0;
@@ -190,8 +233,12 @@ void SoundcheckPlayer::runLoad(const std::vector<Source>& srcs, juce::uint64 gen
             const int in = d.src->inputIndex + c;
             if (data->chanOf[(size_t) in] < 0) data->chanOf[(size_t) in] = k++;
         }
+    if (total > maxTimelineFrames / std::max(1, k)) {
+        rejectTimeline("Soundcheck session timeline exceeds memory budget");
+        return;
+    }
     bool memOk = true;
-    try { data->audio.setSize(std::max(1, k), (int) std::min<std::int64_t>(std::max<std::int64_t>(1, total), std::numeric_limits<int>::max() - 1)); }
+    try { data->audio.setSize(std::max(1, k), static_cast<int>(std::max<std::int64_t>(1, total))); }
     catch (const std::bad_alloc&) { memOk = false; }
     if (memOk) {
         data->audio.clear();
@@ -300,12 +347,18 @@ void SoundcheckPlayer::process(float* const* inputs, int numInputChannels, int n
             loopStart = 0; loopEnd = p->frames; loopOn = false;
         }
     }
-    const std::int64_t frames = current != nullptr ? current->frames : 0;
+    const bool hasCurrent = current != nullptr && current->frames > 0
+        && current->generation >= minimumDataGeneration.load(std::memory_order_acquire);
+    const std::int64_t frames = hasCurrent ? current->frames : 0;
+    if (!hasCurrent) {
+        pos = 0; playing = false; armedA = false; env = 0.0f;
+        playingState = false;
+    }
     Command c;
     while (commands.pop(c)) {
         switch (c.type) {
             case Command::Play:
-                if (current == nullptr) break;
+                if (!hasCurrent) break;
                 if (! playing) {
                     if (pos >= frames) pos = loopOn ? loopStart : 0;
                     playing = true;
@@ -332,7 +385,7 @@ void SoundcheckPlayer::process(float* const* inputs, int numInputChannels, int n
                 loopOn = c.flag && loopEnd > loopStart;
                 break;
             case Command::Arm:
-                if (! locked.load() && current != nullptr) armedA = true;
+                if (!locked.load() && armedState.load() && hasCurrent) armedA = true;
                 break;
             case Command::Disarm:
                 armedA = false;
@@ -340,7 +393,7 @@ void SoundcheckPlayer::process(float* const* inputs, int numInputChannels, int n
         }
     }
     positionFrames.store(pos, std::memory_order_relaxed);
-    if (locked.load(std::memory_order_acquire)) {
+    if (!hasCurrent || locked.load(std::memory_order_acquire)) {
         armedA = false;
         env = 0.0f;
         replacing.store(false, std::memory_order_relaxed);
