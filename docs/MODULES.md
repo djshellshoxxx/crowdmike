@@ -160,6 +160,29 @@ allowed only while the normal producer and consumer are stopped.
 uses it for physical input/output channel maps, initially disconnected (`-1`); `DeviceController` acquires once at
 callback entry and uses the same coherent map for every chunk of that callback.
 
+### Standalone MIDI input (`Standalone/MidiEventQueue.h`)
+
+`MidiEventQueue<Capacity>` carries short MIDI messages (up to 3 bytes) from the MIDI input threads to the standalone
+audio callback without locks or allocation; it replaces `juce::MidiMessageCollector`, which locks against the input
+thread and can grow its buffer on the callback. Producers (`push()`, one per MIDI device thread) never block: a long
+message (SysEx) is rejected and counted at the producer, a full queue drops the event and counts it
+(`droppedOverflow()`, exposed as `DeviceController::getMidiDroppedCount()`). The single consumer (`drainInto()`) moves
+at most `Capacity` events into a `MidiBuffer` that `reserve()` sized beforehand, so the drain cannot allocate; a slot
+a producer is still writing ends the drain early and is delivered next block, order preserved per producer.
+`reset()` is a consumer-role call made only while the device is stopped (`audioDeviceAboutToStart`). Block positions
+follow the collector's rule: the timestamp relative to the previous drain, with the elapsed window aligned to the end
+of the block or compressed into it; events are clamped into the current block, never deferred. Pure mapping in
+`mapToBlock()`; regression tests in `tests/engine/MidiEventQueueTest.cpp` (ordering, clamping, overflow, reset,
+four producers against a draining consumer).
+
+### Editor-owned file dialogs (`UI/AsyncFileChooser.h`)
+
+`AsyncFileChooser` owns one pending `juce::FileChooser`. The `EditorContext` holds the instance used by the module
+preset menu (`kit::showPresetMenu`), so the dialog's lifetime is the editor's: destroying the owner closes the dialog
+and drops its callback, and every callback is wrapped by `guarded()` so it runs only while the anchor component (the
+button that opened it) still exists. Pages that own their own chooser (`PlaybackPage`, `RecordPage`, settings, preset
+browser) already follow the same ownership rule. Tests: `tests/engine/PresetDialogLifetimeTest.cpp`.
+
 ## Show Report (Source/Report, see docs/SHOW_REPORT_SPEC.md)
 
 | Module | File | Contract summary |

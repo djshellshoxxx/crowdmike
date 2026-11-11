@@ -30,7 +30,7 @@ DeviceController::~DeviceController() {
     processor.setHostServices(nullptr);   // the processor outlives us and exports the Show Report from its destructor
     deviceManager.removeChangeListener(this);
     deviceManager.removeAudioCallback(this);
-    deviceManager.removeMidiInputDeviceCallback({}, &midiCollector);
+    deviceManager.removeMidiInputDeviceCallback({}, this);
 }
 
 int DeviceController::resolveChannel(const juce::StringArray& active, const juce::String& name) {
@@ -44,7 +44,7 @@ juce::String DeviceController::initialise() {
     const auto err = deviceManager.initialise(kMaxInputs, kMaxOutputs, saved.get(), true);
     deviceManager.addChangeListener(this);
     deviceManager.addAudioCallback(this);
-    deviceManager.addMidiInputDeviceCallback({}, &midiCollector);
+    deviceManager.addMidiInputDeviceCallback({}, this);
     processor.setHostServices(this);
     startTimer(1000);
     return err;
@@ -55,7 +55,7 @@ void DeviceController::audioDeviceAboutToStart(juce::AudioIODevice* device) {
     deviceLost.store(false);
     const double sr = device->getCurrentSampleRate();
     const int block = device->getCurrentBufferSizeSamples();
-    midiCollector.reset(sr);
+    midiQueue.reset(sr);   // the callback is stopped here: consumer-role reset
     const int devIns = device->getActiveInputChannels().countNumberOfSetBits();
     const int devOuts = device->getActiveOutputChannels().countNumberOfSetBits();
     // Fill sensible first-run bindings, then size the engine to the highest bound channel.
@@ -83,6 +83,7 @@ void DeviceController::applyProcessorLayout(int ins, int outs, double sr, int bl
     processor.setBusesLayout(layout);
     processor.setRateAndBufferSizeDetails(sr, block);
     workBuffer.setSize(juce::jmax(ins, outs), juce::jmax(block, 4096), false, true, false);
+    StandaloneMidiQueue::reserve(midiBuffer);   // a full drain never grows the buffer on the audio thread
     processor.prepareToPlay(sr, juce::jmax(block, 4096));
 }
 
@@ -105,6 +106,10 @@ void DeviceController::rebuildMaps() {
 
 void DeviceController::audioDeviceStopped() { deviceRunning.store(false); }
 
+void DeviceController::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message) {
+    midiQueue.push(message);   // never blocks; long messages and overflow are counted and dropped
+}
+
 void DeviceController::audioDeviceError(const juce::String& message) {
     lastDeviceError = message;
     deviceLost.store(true);
@@ -124,7 +129,7 @@ void DeviceController::audioDeviceIOCallbackWithContext(const float* const* in, 
             if (src >= 0 && src < numIn && in[src] != nullptr) view.copyFrom(i, 0, in[src] + off, n);
         }
         midiBuffer.clear();
-        midiCollector.removeNextBlockOfMessages(midiBuffer, n);
+        midiQueue.drainInto(midiBuffer, n);
         processor.processBlock(view, midiBuffer);
         for (int o = 0; o < numOut; ++o) if (out[o] != nullptr) juce::FloatVectorOperations::clear(out[o] + off, n);
         for (int o = 0; o < engineOuts; ++o) {

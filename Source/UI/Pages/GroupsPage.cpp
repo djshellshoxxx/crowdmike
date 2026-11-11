@@ -92,7 +92,7 @@ public:
             t.module = Mod::Group; t.instance = g; t.factoryTarget = "group"; t.blockPrefixes = { "comp" };
             t.folderName = "group-comp"; t.title = "Group compressor presets";
             t.extraSections = { { "Filter presets", { "hp", "lp" } } };
-            kit::showPresetMenu(proc, &presetBtn, t);
+            kit::showPresetMenu(ctx, &presetBtn, t);
         };
         matrixBtn.setTooltip("Open the Matrix page to edit this group's output routing");
         matrixBtn.onClick = [this] { ctx.select({ Selection::Kind::Group, g }); if (ctx.navigate) ctx.navigate(PageId::Matrix); };
