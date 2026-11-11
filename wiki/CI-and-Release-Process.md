@@ -7,7 +7,7 @@
 
 | Workflow | Trigger | Does | Does not |
 |---|---|---|---|
-| `ci.yml` | Pull request, push to `main`, manual | Builds and runs `crowdmike_dsp_tests`, `crowdmike_recording_tests`, and `crowdmike_tests` on Linux (under xvfb), macOS 14 (arm64), and Windows, with `ctest -LE soak`. Caches FetchContent and ccache. Cancels superseded runs. | Package anything. Run soak tests. |
+| `ci.yml` | Pull request, push to `main`, manual | Builds and runs `crowdmike_dsp_tests`, `crowdmike_recording_tests`, and `crowdmike_tests` on Linux (under xvfb), macOS 15 (arm64), and Windows, with `ctest -LE soak`. Caches FetchContent and ccache. Cancels superseded runs. | Package anything. Run soak tests. |
 | `release-beta.yml` | Manual (`workflow_dispatch`) or a `beta-*` tag | Gate, per-platform packaging, optional validators, publishing as a GitHub pre-release | Rerun the tests |
 | `nightly.yml` | 04:23 UTC daily, or manual | Builds `crowdmike_soak_tests` and runs `ctest -L soak` on Linux, macOS, and Windows | Run in pull requests |
 
