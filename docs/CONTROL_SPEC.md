@@ -96,7 +96,9 @@ Support:
 - note on/off
 - pitch bend optionally for macros
 
-MIDI callback must enqueue lightweight commands rather than mutate complex state unsafely.
+MIDI callback must enqueue lightweight commands rather than mutate complex state unsafely. In the standalone the MIDI input threads hand
+short messages to the audio callback through the bounded, lock-free `MidiEventQueue` (1024 events; SysEx is filtered
+at the producer, overflow is dropped and counted); the callback never locks against a MIDI input thread.
 
 ## 6. OSC
 

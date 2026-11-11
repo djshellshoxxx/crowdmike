@@ -1,17 +1,19 @@
 #pragma once
 // Standalone audio/MIDI device ownership (IO_SPEC sections 1, 3, 8). Owns the AudioDeviceManager, maps physical device
 // channels to engine channels through machine-local bindings (never stored in portable scenes), survives device removal
-// and keeps the audio callback allocation-free.
+// and keeps the audio callback allocation-free and lock-free (MIDI arrives through MidiEventQueue).
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <atomic>
 #include <memory>
 #include "PluginProcessor.h"
 #include "Standalone/HostServices.h"
 #include "Standalone/DeviceMapExchange.h"
+#include "Standalone/MidiEventQueue.h"
 
 namespace crowdmike {
 class DeviceController final : public HostServices,
                                public juce::AudioIODeviceCallback,
+                               private juce::MidiInputCallback,
                                private juce::ChangeListener,
                                private juce::Timer {
 public:
@@ -49,11 +51,15 @@ public:
                                           const juce::AudioIODeviceCallbackContext&) override;
     void audioDeviceError(const juce::String& message) override;
 
+    // MIDI events dropped since start-up because the queue was full (audio stopped or a burst beyond its capacity).
+    uint32_t getMidiDroppedCount() const noexcept { return midiQueue.droppedOverflow(); }
+
     // Pure mapping helper (unit-tested): resolve a binding name against the device's active channel names.
     static int resolveChannel(const juce::StringArray& activeChannelNames, const juce::String& name);
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
+    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;   // MIDI input thread(s)
     void timerCallback() override;
     void rebuildMaps();
     void applyProcessorLayout(int engineIns, int engineOuts, double sr, int block);
@@ -64,7 +70,7 @@ private:
     CrowdMikeAudioProcessor& processor;
     juce::File folder;
     juce::AudioDeviceManager deviceManager;
-    juce::MidiMessageCollector midiCollector;
+    StandaloneMidiQueue midiQueue;        // MIDI input threads -> audio callback, bounded and lock-free
 
     // Message-thread publications never reuse the map held by the in-flight audio callback.
     DeviceMapExchange<kMaxInputs, kMaxOutputs> channelMaps;
