@@ -151,8 +151,6 @@ juce::ValueTree captureBlocks(CrowdMikeAudioProcessor& p, const PresetTarget& t)
 }
 
 namespace {
-std::unique_ptr<juce::FileChooser>& chooserHolder() { static std::unique_ptr<juce::FileChooser> c; return c; }
-
 std::vector<const FactoryPreset*> factoryList(const juce::String& target, const juce::StringArray& prefixes) {
     std::vector<const FactoryPreset*> out;
     if (prefixes.isEmpty()) {
@@ -166,7 +164,8 @@ std::vector<const FactoryPreset*> factoryList(const juce::String& target, const 
 }
 }
 
-void showPresetMenu(CrowdMikeAudioProcessor& proc, juce::Component* anchor, const PresetTarget& t) {
+void showPresetMenu(EditorContext& ctx, juce::Component* anchor, const PresetTarget& t) {
+    auto& proc = ctx.proc;
     juce::PopupMenu menu;
     std::vector<const FactoryPreset*> factory;
     std::vector<juce::File> userFiles;
@@ -195,9 +194,12 @@ void showPresetMenu(CrowdMikeAudioProcessor& proc, juce::Component* anchor, cons
     menu.addItem(2001, "Save as user preset...");
     menu.addItem(2002, "Load preset file...");
 
+    // `anchor` lives inside the editor and the editor inside the processor's lifetime, so a live anchor proves that
+    // `ctx` and `proc` are still valid. Every deferred step checks it before touching either.
     juce::Component::SafePointer<juce::Component> safeAnchor(anchor);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(anchor), [&proc, t, factory, userFiles, safeAnchor](int r) {
-        if (r <= 0) return;
+    auto& dialogs = ctx.dialogs;
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(anchor), [&proc, &dialogs, t, factory, userFiles, safeAnchor](int r) {
+        if (r <= 0 || safeAnchor == nullptr) return;
         if (r <= static_cast<int>(factory.size())) {
             const auto* fp = factory[static_cast<size_t>(r - 1)];
             proc.getUndoManager().beginNewTransaction("Preset: " + juce::String(fp->name));
@@ -212,27 +214,26 @@ void showPresetMenu(CrowdMikeAudioProcessor& proc, juce::Component* anchor, cons
         }
         const auto folder = userFolderFor(t);
         folder.createDirectory();
-        auto& holder = chooserHolder();
         if (r == 2001) {
-            holder = std::make_unique<juce::FileChooser>("Save preset", folder.getChildFile("My preset.cmpreset"), "*.cmpreset");
-            holder->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                                    | juce::FileBrowserComponent::warnAboutOverwriting,
-                                [&proc, t](const juce::FileChooser& fc) {
-                                    auto f = fc.getResult();
-                                    if (f == juce::File()) return;
-                                    if (!f.hasFileExtension("cmpreset")) f = f.withFileExtension("cmpreset");
-                                    PresetManager::saveToFile(captureBlocks(proc, t), f);
-                                });
+            dialogs.launch("Save preset", folder.getChildFile("My preset.cmpreset"), "*.cmpreset",
+                           juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                               | juce::FileBrowserComponent::warnAboutOverwriting,
+                           safeAnchor.getComponent(), [&proc, t](const juce::FileChooser& fc) {
+                               auto f = fc.getResult();
+                               if (f == juce::File()) return;
+                               if (!f.hasFileExtension("cmpreset")) f = f.withFileExtension("cmpreset");
+                               PresetManager::saveToFile(captureBlocks(proc, t), f);
+                           });
         } else if (r == 2002) {
-            holder = std::make_unique<juce::FileChooser>("Load preset", folder, "*.cmpreset");
-            holder->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                                [&proc, t](const juce::FileChooser& fc) {
-                                    const auto f = fc.getResult();
-                                    if (!f.existsAsFile()) return;
-                                    const auto tree = PresetManager::loadFromFile(f);
-                                    proc.getUndoManager().beginNewTransaction("Load preset");
-                                    PresetManager::apply(proc.getParameters(), tree, t.module, t.instance);
-                                });
+            dialogs.launch("Load preset", folder, "*.cmpreset",
+                           juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                           safeAnchor.getComponent(), [&proc, t](const juce::FileChooser& fc) {
+                               const auto f = fc.getResult();
+                               if (!f.existsAsFile()) return;
+                               const auto tree = PresetManager::loadFromFile(f);
+                               proc.getUndoManager().beginNewTransaction("Load preset");
+                               PresetManager::apply(proc.getParameters(), tree, t.module, t.instance);
+                           });
         }
     });
 }

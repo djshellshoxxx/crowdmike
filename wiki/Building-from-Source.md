@@ -24,7 +24,7 @@ sudo apt-get install -y --no-install-recommends \
 
 ### macOS
 
-Use Xcode command line tools, CMake, and Homebrew for the rest. CI runs on macOS 14 with arm64.
+Use Xcode command line tools, CMake, and Homebrew for the rest. CI runs on macOS 15 with arm64 (the macOS 14 image was retired by GitHub on 2 November 2026).
 
 ```bash
 brew install ccache ninja

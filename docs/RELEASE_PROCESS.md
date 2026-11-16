@@ -4,7 +4,7 @@ The build/release pipeline is split so that nothing re-runs the same tests.
 
 | Workflow | Trigger | Does | Does not |
 |---|---|---|---|
-| `ci.yml` | PR, push to `main`, manual | Builds and runs `crowdmike_dsp_tests`, `crowdmike_recording_tests`, `crowdmike_tests` on Linux (xvfb), macOS 14 (arm64) and Windows with `ctest -LE soak`. Caches FetchContent (`.deps`) and ccache. Cancels superseded runs. | Package anything. Run soak tests. |
+| `ci.yml` | PR, push to `main`, manual | Builds and runs `crowdmike_dsp_tests`, `crowdmike_recording_tests`, `crowdmike_tests` on Linux (xvfb), macOS 15 (arm64) and Windows with `ctest -LE soak`. Caches FetchContent (`.deps`) and ccache. Cancels superseded runs. | Package anything. Run soak tests. |
 | `release-beta.yml` | manual (`workflow_dispatch`) or tag `beta-*` | Gate, per-platform packaging, optional validators, publish as GitHub **pre-release**. | Re-run tests. |
 | `nightly.yml` | 04:23 UTC daily, manual | Builds `crowdmike_soak_tests`, runs `ctest -L soak` on Linux, macOS, Windows. | Run in PRs. |
 

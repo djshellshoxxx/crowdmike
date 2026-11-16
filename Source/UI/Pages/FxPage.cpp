@@ -116,7 +116,7 @@ public:
         presets.onClick = [this, info] {
             kit::PresetTarget t;
             t.module = info.mod; t.factoryTarget = info.presetTarget; t.folderName = info.presetTarget; t.title = sendInfo(f).title;
-            kit::showPresetMenu(proc, &presets, t);
+            kit::showPresetMenu(ctx, &presets, t);
         };
         handle.setComponentID("fx-handle-" + juce::String(f));
         for (juce::Component* comp : std::initializer_list<juce::Component*> { &handle, &bypass, &mix, &ret, &meter }) addAndMakeVisible(comp);
@@ -307,7 +307,7 @@ constexpr int kNumInserts = 7;
 
 class InsertCard final : public ModuleCard {
 public:
-    InsertCard(CrowdMikeAudioProcessor& p, InsertSpec specIn, int kindIndex) : ModuleCard(p, specIn.title), spec(std::move(specIn)), grMeter(18.0f) {
+    InsertCard(EditorContext& c, InsertSpec specIn, int kindIndex) : ModuleCard(c.proc, specIn.title), ctx(c), spec(std::move(specIn)), grMeter(18.0f) {
         setComponentID("insert-card-" + juce::String(kindIndex));
         setSubtitle(spec.unavailable.isEmpty() ? spec.subtitle : juce::String("not available on this target"));
         allParams = spec.params;
@@ -325,7 +325,7 @@ public:
         if (spec.mixIndex >= 0) { mix = std::make_unique<kit::Captioned>("Mix", slider(proc, spec.mixIndex, 46), 28); mix->setTooltip("Wet/dry (parallel) mix"); addAndMakeVisible(*mix); }
         else { kit::styleLabel(mixNote, 11.5f, false, palette().textMuted); mixNote.setText("100% wet (inline insert)", juce::dontSendNotification); addAndMakeVisible(mixNote); }
         if (spec.gr) { grMeter.source = [this] { return live ? spec.gr() : 0.0f; }; addAndMakeVisible(grMeter); kit::styleLabel(grLabel, 11.0f, false, palette().textMuted); addAndMakeVisible(grLabel); }
-        presets.onClick = [this] { kit::showPresetMenu(proc, &presets, spec.preset); };
+        presets.onClick = [this] { kit::showPresetMenu(ctx, &presets, spec.preset); };
         std::vector<int> body;
         for (int idx : spec.params) if (idx != spec.onIndex && idx != spec.mixIndex) body.push_back(idx);
         panel.setParams(body);
@@ -353,6 +353,7 @@ public:
     }
     const InsertSpec& getSpec() const noexcept { return spec; }
 private:
+    EditorContext& ctx;
     InsertSpec spec;
     bool live = false;
     std::unique_ptr<ParamToggle> onToggle;
@@ -478,7 +479,7 @@ private:
         else target = { Selection::Kind::Input, juce::jmax(0, id - 1) };
         insertCards.clear();
         for (int k = 0; k < kNumInserts; ++k) {
-            auto* card = insertCards.add(new InsertCard(proc, makeInsert(proc, k, target), k));
+            auto* card = insertCards.add(new InsertCard(ctx, makeInsert(proc, k, target), k));
             card->setLive(live);
             content.addAndMakeVisible(card);
         }

@@ -67,6 +67,13 @@ No parameter IDs, enum ordering, plug-in identity, state schema or preset schema
 
 These are pre-existing findings discovered by the full audit and remain open. This branch is a draft for review, not approval for live-show deployment.
 
+**Follow-up (2026-11-11):** both findings are fixed in the follow-up change on top of this branch. (1) The preset dialog
+is owned by the `EditorContext` (`UI/AsyncFileChooser.h`) and every menu/dialog callback is guarded by the anchor
+component; the global chooser is gone (`tests/engine/PresetDialogLifetimeTest.cpp`). (2) The standalone replaces
+`juce::MidiMessageCollector` with the bounded, lock-free `Standalone/MidiEventQueue.h`; the audio callback drains into a
+pre-sized `MidiBuffer` and never locks or allocates (`tests/engine/MidiEventQueueTest.cpp`). The native host/dialog
+reproduction and a real MIDI controller run remain manual checks.
+
 ## Other open findings
 
 | Priority | Finding | Detailed evidence |

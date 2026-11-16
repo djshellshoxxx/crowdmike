@@ -161,7 +161,7 @@ jobs:
     name: package ${{ matrix.id }}
     needs: [prepare, gate]
     if: needs.prepare.outputs.macos == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 120
     strategy:
       fail-fast: false

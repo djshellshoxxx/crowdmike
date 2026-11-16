@@ -3,3 +3,4 @@ build-*/
 *.swp
 .claude/
 __pycache__/
+.deps/

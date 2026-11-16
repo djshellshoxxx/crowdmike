@@ -133,7 +133,7 @@ public:
             t.module = Mod::Input; t.instance = i; t.factoryTarget = "input"; t.blockPrefixes = { "comp" };
             t.folderName = "input-comp"; t.title = "Compressor presets";
             t.extraSections = { { "Dynamics presets", { "gate", "deess", "trans" } } };
-            kit::showPresetMenu(proc, &presetBtn, t);
+            kit::showPresetMenu(ctx, &presetBtn, t);
         };
 
         hpOn.setTooltip("High-pass filter on/off"); lpOn.setTooltip("Low-pass filter on/off");

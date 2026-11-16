@@ -3,6 +3,7 @@
 #include <functional>
 #include <vector>
 #include "PluginProcessor.h"
+#include "UI/AsyncFileChooser.h"
 #include "UI/Theme.h"
 
 namespace crowdmike::ui {
@@ -28,6 +29,7 @@ public:
     CrowdMikeAudioProcessor& proc;
     std::function<void(PageId)> navigate;                       // set by the shell
     std::function<void(const juce::String&, bool isWarning)> notify;   // transient status-bar message
+    AsyncFileChooser dialogs;                                   // editor-scoped file dialog (preset save/load)
 
     const Selection& getSelection() const noexcept { return selection; }
     void select(Selection s) {
