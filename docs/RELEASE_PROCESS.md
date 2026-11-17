@@ -4,7 +4,7 @@ The build/release pipeline is split so that nothing re-runs the same tests.
 
 | Workflow | Trigger | Does | Does not |
 |---|---|---|---|
-| `ci.yml` | PR, push to `main`, manual | Builds and runs `crowdmike_dsp_tests`, `crowdmike_recording_tests`, `crowdmike_tests` on Linux (xvfb), macOS 14 (arm64) and Windows with `ctest -LE soak`. Caches FetchContent (`.deps`) and ccache. Cancels superseded runs. | Package anything. Run soak tests. |
+| `ci.yml` | PR, push to `main`, manual | Builds and runs `crowdmike_dsp_tests`, `crowdmike_recording_tests`, `crowdmike_tests` on Linux (xvfb), macOS 15 (arm64) and Windows with `ctest -LE soak`. Caches FetchContent (`.deps`) and ccache. Cancels superseded runs. | Package anything. Run soak tests. |
 | `release-beta.yml` | manual (`workflow_dispatch`) or tag `beta-*` | Gate, per-platform packaging, optional validators, publish as GitHub **pre-release**. | Re-run tests. |
 | `nightly.yml` | 04:23 UTC daily, manual | Builds `crowdmike_soak_tests`, runs `ctest -L soak` on Linux, macOS, Windows. | Run in PRs. |
 
@@ -24,6 +24,7 @@ CLAP id) never change with the version. The release workflow refuses a release w
 ## Cut a beta
 
 1. Merge to `main` and wait for `ci` to go green on the merge commit (the release gate checks that exact SHA).
+   Only successful push or manual CI runs count; PR runs test a synthetic merge commit.
 2. Actions > `release-beta` > Run workflow on `main`:
    - `version`: `0.3.0-beta.1` (increment `beta.N` for each beta; the git tag becomes `v0.3.0-beta.1`)
    - `platforms`: `all`
@@ -56,6 +57,8 @@ The old automatic `windows-build-<sha>` pre-release on every push to `main` no l
   `SHA256SUMS` is recomputed over everything. If the existing release was built from a different commit, a
   partial re-run fails on purpose (mixed-commit releases are refused); use `platforms=all` to replace the whole release
   (the old release and tag are deleted and recreated for the new SHA).
+- If the `v<version>` tag exists without a release and points to a different commit, the run fails. Choose a new
+  version or reconcile that tag before retrying; a same-commit tag can be reused.
 - GitHub's "Re-run failed jobs" on a failed run also works: successful package jobs are not repeated.
 
 ## What is NOT verified (state this in every beta)
@@ -75,7 +78,7 @@ The old automatic `windows-build-<sha>` pre-release on every push to `main` no l
 
 ## Troubleshooting
 
-- `gate` fails: no successful `ci.yml` run for that SHA. Check the Actions tab, fix or wait, re-run `release-beta`.
+- `gate` fails: no successful push/manual `ci.yml` run for that SHA. Check the Actions tab, fix or wait, re-run `release-beta`.
 - `prepare` fails on version: bump `CMakeLists.txt` (and the other places above) in a PR first.
 - macOS x64 job fails the `lipo` check: a dependency built for the wrong architecture; check the configure log for
   `CMAKE_OSX_ARCHITECTURES`.

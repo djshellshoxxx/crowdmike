@@ -644,9 +644,10 @@ void CrowdEngine::processChunk(juce::AudioBuffer<float>& host, int offset, int n
         const float g = outGain.next();
         const float b = bypassMix.next();
         for (int c = 0; c < numOut; ++c) {
-            const float wet = outBuf.channel(c)[s] * g;
+            const float wet = outBuf.channel(c)[s];
             const float dry = (c < ins) ? dryBuf.channel(c)[s] : 0.0f;
-            outBuf.channel(c)[s] = b <= 0.0f ? wet : wet * (1.0f - b) + dry * b;
+            // Panic and rehearsal protect the output after either path has been selected.
+            outBuf.channel(c)[s] = (b <= 0.0f ? wet : wet * (1.0f - b) + dry * b) * g;
         }
     }
     if (monitorBus.isActive()) {   // cue pair: added after panic / rehearsal / bypass, hard-limited to 0 dBFS

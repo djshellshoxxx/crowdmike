@@ -70,6 +70,7 @@ struct PlaybackEngine::Voice {
     bool waiting = false;             // no pre-buffered head: wait for the ring to fill before sounding
     int waited = 0;
     std::int64_t sS = 0, sLen = 0;    // region snapshot taken when the ring was requested
+    int headFrames = 0;               // usable head length for this playback sequence (0 when its key differs)
     int nextRoute = -1;               // route change of a streamed voice: duck, switch, un-duck
     float duck = 1.0f;
     // tempo-synced loop
@@ -672,6 +673,7 @@ bool PlaybackEngine::attachRing(Voice& v, const ClipData& c, const Params& P) no
     if (len < 1) return false;
     const bool headOk = c.headS == s && c.headLen == len && c.headRev == P.reverse;
     const int headFrames = headOk ? c.headFrames : 0;
+    v.headFrames = headFrames;
     v.sS = s;
     v.sLen = len;
     v.seq = 0;
@@ -863,7 +865,7 @@ void PlaybackEngine::renderVoice(AudioSlot& slot, Voice& v, float* const* dL, fl
     const float* h0 = nullptr;
     const float* h1 = nullptr;
     if (streamed) {
-        hN = c->headFrames;
+        hN = v.headFrames;
         if (hN > 0) { h0 = c->head.getReadPointer(0); h1 = c->head.getReadPointer(1); }
         if (rg != nullptr) {
             rg->loop.store(loop && ! syncActive, std::memory_order_relaxed);
@@ -924,6 +926,9 @@ void PlaybackEngine::renderVoice(AudioSlot& slot, Voice& v, float* const* dL, fl
                 v.ring = -1;
                 rg = nullptr;
                 if (! attachRing(v, *c, P)) { endVoice(v); break; }
+                hN = v.headFrames;
+                h0 = hN > 0 ? c->head.getReadPointer(0) : nullptr;
+                h1 = hN > 0 ? c->head.getReadPointer(1) : nullptr;
                 if (v.ring >= 0) rg = &pool.ring(v.ring);
                 w = rg != nullptr ? rg->writeSeq.load(std::memory_order_acquire) : 0;
                 if (v.waiting) break;   // no head: resumes once the ring is ready (next block)
@@ -1007,8 +1012,15 @@ void PlaybackEngine::renderBed(float* const* dL, float* const* dR, int n, bool m
             b.running = false;
         }
     }
-    if (b.clip == nullptr) { b.env = 0.0f; return; }
-    if (! want && b.env <= 0.0f) { b.running = false; return; }
+    if (b.clip == nullptr || (! want && b.env <= 0.0f)) {
+        if (b.cur.ring >= 0) pool.release(b.cur.ring);
+        if (b.next.ring >= 0) pool.release(b.next.ring);
+        b.cur.ring = b.next.ring = -1;
+        b.nextPicked = false;
+        b.running = false;
+        b.env = 0.0f;
+        return;
+    }
     if (b.clip->streamed) { renderBedStreamed(want, switching, dL, dR, n, mute); return; }
     if (b.cur.ring >= 0 || b.next.ring >= 0) {   // the bed was streaming before: give its rings back
         if (b.cur.ring >= 0) pool.release(b.cur.ring);

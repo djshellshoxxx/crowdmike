@@ -56,6 +56,8 @@ juce_add_plugin(CrowdMike
     NEEDS_MIDI_INPUT FALSE      # plug-ins are driven by host automation; the standalone feeds its own MIDI to the processor
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "CrowdMike uses audio inputs to capture and process crowd microphones."
 )
 
 target_sources(CrowdMike PRIVATE ${CM_DSP_SOURCES} ${CM_APP_SOURCES})

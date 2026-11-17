@@ -146,6 +146,43 @@ Spec: `docs/DUCKER_SPEC.md`. Engine wiring in `CrowdEngine::applyDucker` (copies
 * Panic is a dedicated atomic checked every block; recorder taps are taken before the panic gain.
 * Every output channel passes through the same lookahead limiter, so plug-in latency is a single constant reported to the host.
 
+### Control-to-audio snapshots (`Core/SnapshotExchange.h`)
+
+`SnapshotExchange<T>` publishes complete trivially copyable values from one control-thread producer to one audio-thread
+consumer. Three slots have exclusive producer, consumer and exchange ownership, so repeated control updates cannot
+overwrite the callback's current snapshot. `publish()` and `acquire()` perform bounded lock-free work without allocation
+or retry loops; intermediate unpublished-to-audio values may be superseded by newer values. The reference returned by
+`acquire()` remains valid until the consumer's next call to `acquire()`. Startup publication from a different thread is
+allowed only while the normal producer and consumer are stopped.
+
+`ParamBank` uses this hand-over for macro modulation: the message thread owns its latest `MacroSet` and
+`currentMacros()` view, while `refresh()` acquires one stable audio snapshot per block. `Standalone/DeviceMapExchange.h`
+uses it for physical input/output channel maps, initially disconnected (`-1`); `DeviceController` acquires once at
+callback entry and uses the same coherent map for every chunk of that callback.
+
+### Standalone MIDI input (`Standalone/MidiEventQueue.h`)
+
+`MidiEventQueue<Capacity>` carries short MIDI messages (up to 3 bytes) from the MIDI input threads to the standalone
+audio callback without locks or allocation; it replaces `juce::MidiMessageCollector`, which locks against the input
+thread and can grow its buffer on the callback. Producers (`push()`, one per MIDI device thread) never block: a long
+message (SysEx) is rejected and counted at the producer, a full queue drops the event and counts it
+(`droppedOverflow()`, exposed as `DeviceController::getMidiDroppedCount()`). The single consumer (`drainInto()`) moves
+at most `Capacity` events into a `MidiBuffer` that `reserve()` sized beforehand, so the drain cannot allocate; a slot
+a producer is still writing ends the drain early and is delivered next block, order preserved per producer.
+`reset()` is a consumer-role call made only while the device is stopped (`audioDeviceAboutToStart`). Block positions
+follow the collector's rule: the timestamp relative to the previous drain, with the elapsed window aligned to the end
+of the block or compressed into it; events are clamped into the current block, never deferred. Pure mapping in
+`mapToBlock()`; regression tests in `tests/engine/MidiEventQueueTest.cpp` (ordering, clamping, overflow, reset,
+four producers against a draining consumer).
+
+### Editor-owned file dialogs (`UI/AsyncFileChooser.h`)
+
+`AsyncFileChooser` owns one pending `juce::FileChooser`. The `EditorContext` holds the instance used by the module
+preset menu (`kit::showPresetMenu`), so the dialog's lifetime is the editor's: destroying the owner closes the dialog
+and drops its callback, and every callback is wrapped by `guarded()` so it runs only while the anchor component (the
+button that opened it) still exists. Pages that own their own chooser (`PlaybackPage`, `RecordPage`, settings, preset
+browser) already follow the same ownership rule. Tests: `tests/engine/PresetDialogLifetimeTest.cpp`.
+
 ## Show Report (Source/Report, see docs/SHOW_REPORT_SPEC.md)
 
 | Module | File | Contract summary |
@@ -167,3 +204,14 @@ Spec: `docs/DUCKER_SPEC.md`. Engine wiring in `CrowdEngine::applyDucker` (copies
 * `MonitorBus`: cue/monitor stereo pair mix of record taps, ramped gain, hard limit. Audio thread safe. See RECORDING_SPEC 14.
 * `MarkerExport`: CSV, Audacity labels and REAPER CSV of a session's markers. Message/writer thread.
 * `TransportRecordTrigger`: host transport edge detector for record-with-transport. One atomic on the audio thread, polled by the processor timer.
+* `SoundcheckPlayer::unloadSession()`: non-audio session removal. Cancels the loader, clears mapping/reload metadata and
+  locks/disarms immediately; an empty immutable publication replaces current audio through the existing retire queue.
+  A minimum data generation prevents old audio being reactivated while retirement capacity delays replacement. Audio
+  callbacks never delete session data. Missing/removed show references use this path rather than `releaseResources()`.
+
+### Analysis-worker preparation (`Engine/AnalysisThread.*`)
+
+`AnalysisThread::ScopedSuspension` is a non-audio lifecycle guard. It joins current work and prevents `acquire/release`
+from restarting the worker until the guard exits, then resumes only existing reference-counted users. The processor
+holds guards for both feedback and beat analysis while preparing the engine. Worker jobs and audio processing never
+take this lifecycle mutex; a guard must not nest for the same worker.

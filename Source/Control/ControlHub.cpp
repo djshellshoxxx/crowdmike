@@ -52,9 +52,11 @@ bool ControlHub::setParamActual(int idx, float actual) {
 
 bool ControlHub::pulseParam(int idx, int ms) {
     if (!setParamNormalised(idx, 1.0f)) return false;
-    juce::Component::SafePointer<juce::Component> dummy;
     auto* p = apvts.getParameter(ParamBank::idForIndex(idx));
-    juce::Timer::callAfterDelay(ms, [p] { if (p != nullptr) p->setValueNotifyingHost(0.0f); });
+    const std::weak_ptr<int> lifetime = pulseLifetime;
+    juce::Timer::callAfterDelay(ms, [p, lifetime] {
+        if (!lifetime.expired() && p != nullptr) p->setValueNotifyingHost(0.0f);
+    });
     return true;
 }
 

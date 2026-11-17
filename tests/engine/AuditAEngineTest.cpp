@@ -280,29 +280,30 @@ CM_TEST(audit_feedback_risk_follows_input_sends_into_fx_returns) {
 
 // ---------------------------------------------------------------- state
 CM_TEST(audit_state_without_scenes_clears_the_scenes_of_the_target_instance) {
-    CrowdMikeAudioProcessor src;
-    const auto xml = StateIO::serialize({ src.getParameters(), src.getRouting(), src.getShow(), src.getScenes() }, StateIO::EngineConfigInfo {});
+    // Four processors exceed the default 1 MiB Windows stack. Keep the instances alive on the heap.
+    const auto src = std::make_unique<CrowdMikeAudioProcessor>();
+    const auto xml = StateIO::serialize({ src->getParameters(), src->getRouting(), src->getShow(), src->getScenes() }, StateIO::EngineConfigInfo {});
     CM_EXPECT(xml != nullptr);
     if (xml == nullptr) return;
     juce::XmlElement noScenes(*xml);
     if (auto* sc = noScenes.getChildByName("Scenes")) noScenes.removeChildElement(sc, true);
     CM_EXPECT(noScenes.getChildByName("Scenes") == nullptr);
 
-    CrowdMikeAudioProcessor dst;
-    dst.getScenes().capture(3, "Leftover");
-    CM_EXPECT(dst.getScenes().countUsed() == 1 && dst.getScenes().current() == 3);
-    const auto res = StateIO::restore({ dst.getParameters(), dst.getRouting(), dst.getShow(), dst.getScenes() }, noScenes, 2, 2);
+    const auto dst = std::make_unique<CrowdMikeAudioProcessor>();
+    dst->getScenes().capture(3, "Leftover");
+    CM_EXPECT(dst->getScenes().countUsed() == 1 && dst->getScenes().current() == 3);
+    const auto res = StateIO::restore({ dst->getParameters(), dst->getRouting(), dst->getShow(), dst->getScenes() }, noScenes, 2, 2);
     CM_EXPECT(res == StateIO::Result::Ok);
-    CM_EXPECT(dst.getScenes().countUsed() == 0);
-    CM_EXPECT(dst.getScenes().current() == -1);
+    CM_EXPECT(dst->getScenes().countUsed() == 0);
+    CM_EXPECT(dst->getScenes().current() == -1);
     // a state that does carry scenes still restores them
-    CrowdMikeAudioProcessor withScenes;
-    withScenes.getScenes().capture(5, "Kept");
+    const auto withScenes = std::make_unique<CrowdMikeAudioProcessor>();
+    withScenes->getScenes().capture(5, "Kept");
     juce::MemoryBlock b2;
-    withScenes.getStateInformation(b2);
-    CrowdMikeAudioProcessor again;
-    again.setStateInformation(b2.getData(), static_cast<int>(b2.getSize()));
-    CM_EXPECT(again.getScenes().countUsed() == 1 && again.getScenes().at(5).name == "Kept");
+    withScenes->getStateInformation(b2);
+    const auto again = std::make_unique<CrowdMikeAudioProcessor>();
+    again->setStateInformation(b2.getData(), static_cast<int>(b2.getSize()));
+    CM_EXPECT(again->getScenes().countUsed() == 1 && again->getScenes().at(5).name == "Kept");
 }
 
 // ---------------------------------------------------------------- tables that must cover every FX slot

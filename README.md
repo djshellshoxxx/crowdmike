@@ -67,6 +67,7 @@ The polarity/phase controls are useful for correcting wiring polarity, aligning 
 - [Recording and playback specification](docs/RECORDING_SPEC.md)
 - [State, presets, automation, and MIDI/OSC specification](docs/CONTROL_SPEC.md)
 - [Testing and performance specification](docs/TESTING_SPEC.md)
+- [Cloud development environment](docs/CLOUD_DEVELOPMENT.md)
 - [Implementation roadmap and status](docs/IMPLEMENTATION_PLAN.md)
 - [Module index and DSP contracts](docs/MODULES.md)
 - [Performer ducker](docs/DUCKER_SPEC.md)

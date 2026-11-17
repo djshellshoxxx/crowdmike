@@ -4,6 +4,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <vector>
 #include "Control/OscAddress.h"
 #include "Core/SceneBank.h"
@@ -85,5 +86,8 @@ private:
     std::array<MidiEvent, kQueueSize> queue {};
     std::atomic<bool> learning { false };
     LearnRequest learnRequest;
+    // Deferred parameter releases belong to this message-thread executor. The
+    // token expires before its referenced APVTS may be destroyed with the owner.
+    std::shared_ptr<int> pulseLifetime = std::make_shared<int>(0);
 };
 }

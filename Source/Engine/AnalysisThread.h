@@ -7,6 +7,7 @@
 #include <juce_core/juce_core.h>
 #include <atomic>
 #include <functional>
+#include <mutex>
 
 namespace crowdmike {
 class AnalysisThread final : private juce::Thread {
@@ -15,9 +16,20 @@ public:
         : juce::Thread("CrowdMike analysis"), work(std::move(job)), period(periodMs) {}
     ~AnalysisThread() override { stopThread(2000); }
 
+    // Non-audio lifecycle guard: joins in-flight work, blocks acquire/release while suspended, then restores existing
+    // users on scope exit. Hold this around re-preparing any state read by the worker. Guards must not nest per worker.
+    class ScopedSuspension {
+    public:
+        explicit ScopedSuspension(AnalysisThread&);
+        ~ScopedSuspension();
+    private:
+        AnalysisThread& worker;
+        std::unique_lock<std::mutex> lock;
+    };
+
     void acquire();
     void release();
-    bool isActive() const noexcept { return users > 0; }
+    bool isActive() const noexcept { return users.load(std::memory_order_relaxed) > 0; }
     std::uint64_t getRunCount() const noexcept { return runs.load(std::memory_order_relaxed); }
     // Runs the job once synchronously (tests / when the thread is not wanted).
     void runOnceForTesting() { if (work) work(); runs.fetch_add(1, std::memory_order_relaxed); }
@@ -26,7 +38,8 @@ private:
     void run() override;
     std::function<void()> work;
     int period;
-    int users = 0;
+    std::mutex lifecycleMutex;           // never used by run() or the audio callback
+    std::atomic<int> users { 0 };
     std::atomic<std::uint64_t> runs { 0 };
 };
 }

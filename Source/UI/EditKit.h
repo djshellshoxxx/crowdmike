@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 #include "PluginProcessor.h"
+#include "UI/EditorContext.h"
 #include "UI/Theme.h"
 
 namespace crowdmike::ui::kit {
@@ -81,7 +82,9 @@ struct PresetTarget {
     juce::String title;                        // shown as the menu header
     std::vector<std::pair<juce::String, juce::StringArray>> extraSections;   // e.g. {"Dynamics presets", {"gate","deess"}}
 };
-void showPresetMenu(CrowdMikeAudioProcessor&, juce::Component* anchor, const PresetTarget&);
+// The file dialog is owned by the editor context (closing the editor cancels it) and every asynchronous callback
+// runs only while `anchor` still exists, so no callback can reach a processor whose editor has gone.
+void showPresetMenu(EditorContext&, juce::Component* anchor, const PresetTarget&);
 // Capture of the listed blocks (or the whole module) of one instance, as a PresetManager tree.
 juce::ValueTree captureBlocks(CrowdMikeAudioProcessor&, const PresetTarget&);
 juce::File userFolderFor(const PresetTarget&);

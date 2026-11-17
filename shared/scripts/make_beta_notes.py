@@ -5,7 +5,9 @@ Combines a fixed header (what is in the release, how it was verified, what was n
 produced by shared/scripts/generate_release_notes.py.
 
 usage: make_beta_notes.py --version 0.3.0-beta.1 --sha <sha> --assets-dir dist [--since v0.3.0-beta.0]
-                          [--repo owner/name] [--run-url URL] [--validators-ran]
+                          [--repo owner/name] [--run-url URL]
+                          [--pluginval-result success|failure|skipped|cancelled]
+                          [--clap-validator-result success|failure|skipped|cancelled]
 """
 import argparse
 import subprocess
@@ -45,6 +47,9 @@ def main() -> int:
     ap.add_argument("--repo", default="")
     ap.add_argument("--run-url", default="")
     ap.add_argument("--validators-ran", action="store_true")
+    results = ("success", "failure", "skipped", "cancelled")
+    ap.add_argument("--pluginval-result", choices=results)
+    ap.add_argument("--clap-validator-result", choices=results)
     ap.add_argument("--project-root", default=".")
     args = ap.parse_args()
 
@@ -55,6 +60,20 @@ def main() -> int:
             if name.endswith(needle):
                 rows.append(f"| {label} | `{name}` |")
     missing = [label for needle, label in ASSET_LABELS if not any(a.endswith(needle) for a in assets)]
+
+    if args.pluginval_result is not None or args.clap_validator_result is not None:
+        labels = {"success": "passed", "failure": "failed", "skipped": "did not run", "cancelled": "was cancelled"}
+        validator_notes = [
+            f"- pluginval (strictness 5): **{labels[args.pluginval_result or 'skipped']}**.",
+            f"- clap-validator: **{labels[args.clap_validator_result or 'skipped']}**.",
+            "- Validator results are informational; see the workflow run for logs.",
+        ]
+    else:
+        # Preserve the original CLI for callers that only know whether validators ran.
+        validator_notes = [
+            "- pluginval (strictness 5) and clap-validator ran on the Linux build; results are informational and in the workflow run."
+            if args.validators_ran else "- Plug-in validators (pluginval, clap-validator) were not run for this release."
+        ]
 
     out = [f"# CrowdMike {args.version} (beta)", ""]
     out.append("**Pre-release for testing.** Not for live shows without a rehearsal on your own hardware.")
@@ -69,8 +88,7 @@ def main() -> int:
         "- Unit, engine and recording tests passed on Linux, macOS (Apple Silicon) and Windows for this exact commit (CI gate).",
         "- Plug-in binaries were compiled and packaged only; they were not launched on every platform by the pipeline.",
         "- macOS Intel (x86_64) is cross-compiled on an Apple Silicon runner and has not been run on Intel hardware.",
-        ("- pluginval (strictness 5) and clap-validator ran on the Linux build; results are informational and in the workflow run."
-         if args.validators_ran else "- Plug-in validators (pluginval, clap-validator) were not run for this release."),
+        *validator_notes,
         "- Real audio interfaces, DAW hosts and long live use are not covered by the pipeline.",
         "- Windows builds are unsigned (SmartScreen may warn). macOS builds are ad-hoc signed only and **not notarized**: "
         "Gatekeeper blocks them until you remove the quarantine flag (see README-macOS.txt in the zip). Linux builds are unsigned.",

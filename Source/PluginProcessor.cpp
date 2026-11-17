@@ -76,6 +76,7 @@ double CrowdMikeAudioProcessor::getTailLengthSeconds() const
 
 void CrowdMikeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    crowdmike::AnalysisThread::ScopedSuspension pauseFeedback(analysis), pauseBeat(beatAnalysis);
     const int ins = juce::jlimit(1, kMaxInputs, getTotalNumInputChannels());
     const int outs = juce::jlimit(1, kMaxOutputs, getTotalNumOutputChannels());
     activeInputChannels.store(ins, std::memory_order_relaxed);
@@ -167,8 +168,12 @@ void CrowdMikeAudioProcessor::setStateInformation(const void* data, int sizeInBy
     const auto result = StateIO::restore({ parameters, routing, show, scenes }, *xml,
                                          activeInputChannels.load(std::memory_order_relaxed),
                                          activeOutputChannels.load(std::memory_order_relaxed));
-    if (result == StateIO::Result::Ok)
+    if (result == StateIO::Result::Ok) {
         applyShowChanges();
+        // Wrappers such as CLAP must invalidate the host's cached values after
+        // restoring a preset or state, even though the parameter IDs are stable.
+        updateHostDisplay(juce::AudioProcessorListener::ChangeDetails{}.withProgramChanged(true));
+    }
 }
 
 void CrowdMikeAudioProcessor::applyShowChanges()
@@ -373,15 +378,23 @@ void CrowdMikeAudioProcessor::restorePlaybackFromShow()
     if (bedNode.isValid() && !(appliedBed.isValid() && bedNode.isEquivalentTo(appliedBed))) {
         playback.setBed(readBed(bedNode));
         appliedBed = bedNode.createCopy();
+    } else if (!bedNode.isValid() && appliedBed.isValid()) {
+        playback.setBed(rec::PlaybackEngine::BedSettings {});
+        appliedBed = {};
     }
     const auto sc = playbackChild(kSoundcheck, -1, false);
     if (sc.isValid() && !(appliedSoundcheck.isValid() && sc.isEquivalentTo(appliedSoundcheck))) {
         const auto path = sc["session"].toString();
-        if ((!appliedSoundcheck.isValid() || path != appliedSoundcheck["session"].toString()) && pathExists(path))
-            soundcheck.loadSession(fileFromPath(path));
+        if (!appliedSoundcheck.isValid() || path != appliedSoundcheck["session"].toString()) {
+            soundcheck.unloadSession();
+            if (pathExists(path)) soundcheck.loadSession(fileFromPath(path));
+        }
         if (sc.hasProperty("loopStart"))
             soundcheck.setLoopRange(static_cast<double>(sc["loopStart"]), static_cast<double>(sc["loopEnd"]), static_cast<bool>(sc["loopOn"]));
         appliedSoundcheck = sc.createCopy();
+    } else if (!sc.isValid() && appliedSoundcheck.isValid()) {
+        soundcheck.unloadSession();
+        appliedSoundcheck = {};
     }
 }
 

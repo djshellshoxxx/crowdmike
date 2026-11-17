@@ -8,6 +8,7 @@
 #include <vector>
 #include "Core/Limits.h"
 #include "Core/ParamTables.h"
+#include "Core/SnapshotExchange.h"
 
 namespace crowdmike {
 // Modules added after the first release come AFTER Macro on purpose: global parameter indices and the persisted preset `module`
@@ -61,18 +62,20 @@ public:
     float rawAt(int globalIndex) const noexcept { return raw[static_cast<size_t>(globalIndex)]->load(std::memory_order_relaxed); }
     juce::RangedAudioParameter* parameterAt(int globalIndex) const noexcept { return ranged[static_cast<size_t>(globalIndex)]; }
 
-    // Message thread: publish a new macro configuration (lock-free hand-over to the audio thread).
+    // One message-thread producer publishes configurations; refresh() acquires
+    // one stable snapshot per audio block. Publications may replace a pending
+    // update, but cannot alter the snapshot that refresh() is reading.
     void publishMacros(const MacroSet& set);
-    const MacroSet& currentMacros() const noexcept { return slots[static_cast<size_t>(activeSlot.load(std::memory_order_acquire))]; }
+    // Message-thread view of the latest configuration, including a pending one.
+    const MacroSet& currentMacros() const noexcept { return latestMacros; }
     float macroValue(int macro) const noexcept { return macroValues[static_cast<size_t>(macro)]; }
 
 private:
     std::vector<std::atomic<float>*> raw;
     std::vector<juce::RangedAudioParameter*> ranged;
     std::vector<float> eff;
-    std::array<MacroSet, 4> slots {};
-    std::atomic<int> activeSlot { 0 };
-    int writeSlot = 1;
+    SnapshotExchange<MacroSet> macroSnapshots;
+    MacroSet latestMacros;
     std::array<float, kNumMacros> macroValues {};
 };
 }
